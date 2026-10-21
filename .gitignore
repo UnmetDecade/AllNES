@@ -3,6 +3,7 @@ cmake-build-*/
 .cache/
 tmp/
 roms/
+freefonts/
 .DS_Store
 *.o
 *.a

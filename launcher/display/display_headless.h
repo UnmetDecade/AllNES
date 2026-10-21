@@ -41,9 +41,15 @@ public:
     std::uint32_t ticks() const override;
     void          delay(std::uint32_t ms) override;
 
-    int canvasWidth() const override;
-    int canvasHeight() const override;
-    int renderScale() const override;
+    int   canvasWidth() const override;
+    int   canvasHeight() const override;
+    float renderScale() const override;
+
+    int         padCount() const override;
+    bool        padButton(int slot, int buttonIndex) const override;
+    int         padAxis(int slot, int axisIndex) const override;
+    std::string padName(int slot) const override;
+    bool        padRumble(int slot) override;
 
 private:
     std::vector<std::uint32_t> m_pixels;

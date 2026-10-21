@@ -53,25 +53,65 @@ constexpr int kRightW = 400;
 constexpr int kRightH = 876;
 
 constexpr int kCardW    = 181;
-constexpr int kCoverH   = 241;
-constexpr int kCardH    = 295;
+constexpr int kCoverH   = 215;
+constexpr int kCardH    = 274;
 constexpr int kCardGapX = 20;
-constexpr int kCardGapY = 20;
+constexpr int kCardGapY = 16;
 
 constexpr int kBannerY = kMainY;
 constexpr int kBannerH = 320;
+constexpr int kBannerHEmpty = 288;  // shorter hero when "recent" is collapsed
 
 constexpr int kShelfHeaderY = 460;
 constexpr int kShelfY       = 492;
-constexpr int kShelfH       = 142;
+constexpr int kShelfH       = 196;
 constexpr int kShelfCardW   = 352;  // 5 cards fill the 1824px content width
 constexpr int kShelfGap     = 16;
 
-constexpr int kHomeGridHeaderY = 656;
-constexpr int kHomeGridY       = 692;
-constexpr int kHomeGridH       = 320;
+constexpr int kHomeGridHeaderY = 700;
+constexpr int kHomeGridY       = 736;
+constexpr int kHomeGridH       = 280;
+constexpr int kHomeGridEmptyH  = 564;  // two full card rows when "recent" is collapsed
+constexpr int kHomeEmptyHeaderY = 428; // "游戏库" header when "recent" is collapsed
+constexpr int kHomeEmptyGridY   = 460; // grid top when "recent" is collapsed
 constexpr int kLibraryGridY    = 158;
 constexpr int kLibraryGridH    = 854;
+
+constexpr int kLibraryFilterX   = 168;
+constexpr int kLibraryFilterY   = 105;
+constexpr int kLibraryFilterW   = 92;
+constexpr int kLibraryFilterH   = 34;
+constexpr int kLibraryFilterGap = 8;
+
+// Settings page: left sidebar + scrollable content.
+constexpr int kSettingsSidebarX = kLeftX;
+constexpr int kSettingsSidebarY = 110;  // vertically centered in the settings area
+constexpr int kSettingsSidebarW = 256;
+constexpr int kSettingsSidebarH = 896;
+constexpr int kSettingsContentX = kSettingsSidebarX + kSettingsSidebarW + 12;
+constexpr int kSettingsContentY = 110;  // vertically centered in the settings area
+constexpr int kSettingsContentW = kLeftX + kLeftW - kSettingsContentX;
+constexpr int kSettingsContentH = 896;
+constexpr int kSettingsCardW = kSettingsContentW;  // cards span the content area
+constexpr int kSettingsCardX = 0;
+
+const char* const kPadButtonNames[display::PadButtonCount] = {
+    "A", "B", "X", "Y", "LB", "RB", "Select", "Start",
+    "L3", "R3", "Home", "↑", "↓", "←", "→",
+};
+const char* const kPadAxisNames[display::PadAxisCount] = {
+    "左摇杆 X", "左摇杆 Y", "右摇杆 X", "右摇杆 Y", "LT", "RT",
+};
+
+struct BindEntry { const char* label; const char* binding; };
+const BindEntry kDefaultBinds[] = {
+    { "十字键 上", "W" },   { "十字键 下", "S" },
+    { "十字键 左", "A" },   { "十字键 右", "D" },
+    { "A 键", "J" },        { "B 键", "K" },
+    { "Select", "RShift" }, { "Start", "Return" },
+    { "连发 A", "—" },      { "连发 B", "—" },
+    { "即时存档", "F1" },   { "即时读档", "F2" },
+};
 
 constexpr int kNavX        = 380;
 constexpr int kNavY        = 16;
@@ -95,7 +135,7 @@ constexpr int kFullscreenH = 32;
 
 constexpr int kBannerTextX    = kLeftX + 36;
 constexpr int kBannerPlayX    = kBannerTextX;
-constexpr int kBannerPlayY    = 350;
+constexpr int kBannerPlayY    = 314;
 constexpr int kBannerPlayW    = 190;
 constexpr int kBannerPlayH    = 50;
 constexpr int kBannerRescanX  = kBannerPlayX + kBannerPlayW + 14;
@@ -121,7 +161,7 @@ constexpr int kSettingsRescanW   = 190;
 constexpr int kSettingsRescanH   = 42;
 
 constexpr int kHomeVisibleRows    = 1;
-constexpr int kLibraryVisibleRows = 2;
+constexpr int kLibraryVisibleRows = 3;
 
 constexpr uint32_t kTextHex       = 0xE8EAF0;
 constexpr uint32_t kDimHex        = 0x9AA1AD;
@@ -186,16 +226,6 @@ int maxScrollFor(int count, int visibleRows)
         return 0;
     const int rows = (count + kColumns - 1) / kColumns;
     return std::max(0, rows - visibleRows);
-}
-
-int visibleRows(int tab)
-{
-    return tab == 0 ? kHomeVisibleRows : kLibraryVisibleRows;
-}
-
-int drawRows(int tab)
-{
-    return tab == 0 ? 1 : 3;
 }
 
 std::string formatSize(long long bytes)
@@ -303,6 +333,30 @@ std::vector<std::string> fontCandidates()
             paths.emplace_back(env);
     }
 
+    // Bundled UI font (repo's freefonts/ directory). A single .otf rasterizes
+    // crisper than the system .ttc collections, so it is preferred when found.
+    {
+        std::error_code ec;
+        const fs::path cwd = fs::current_path(ec);
+        if (!ec)
+        {
+            static const char* kBundled[] = {
+                "SourceHanSansCN-Regular.otf",
+                "SourceHanSansCN-Medium.otf",
+                "阿里巴巴普惠体-REGULAR.OTF",
+            };
+            for (const char* name : kBundled)
+            {
+                const fs::path candidate = cwd / "freefonts" / name;
+                if (fs::is_regular_file(candidate, ec))
+                {
+                    paths.push_back(candidate.string());
+                    break;
+                }
+            }
+        }
+    }
+
 #if defined(_WIN32)
     paths.insert(paths.end(), {
         "C:/Windows/Fonts/msyh.ttc",
@@ -343,31 +397,35 @@ lv_font_t* makeFont(const std::string& path, int size)
                                    LV_FREETYPE_FONT_STYLE_NORMAL);
 }
 
-bool loadFonts(Fonts& fonts, int scale)
+bool loadFonts(Fonts& fonts, float scale)
 {
-    if (scale < 1)
-        scale = 1;
+    if (scale <= 0.0f)
+        scale = 1.0f;
+
+    auto sized = [scale](int design) {
+        return std::max(1, static_cast<int>(std::lround(design * scale)));
+    };
 
     for (const std::string& path : fontCandidates())
     {
-        lv_font_t* probe = makeFont(path, 15 * scale);
+        lv_font_t* probe = makeFont(path, sized(15));
         if (!probe)
             continue;
         lv_freetype_font_delete(probe);
 
-        fonts.f11 = makeFont(path, 11 * scale);
-        fonts.f12 = makeFont(path, 12 * scale);
-        fonts.f13 = makeFont(path, 13 * scale);
-        fonts.f14 = makeFont(path, 14 * scale);
-        fonts.f15 = makeFont(path, 15 * scale);
-        fonts.f16 = makeFont(path, 16 * scale);
-        fonts.f17 = makeFont(path, 17 * scale);
-        fonts.f18 = makeFont(path, 18 * scale);
-        fonts.f20 = makeFont(path, 20 * scale);
-        fonts.f21 = makeFont(path, 21 * scale);
-        fonts.f22 = makeFont(path, 22 * scale);
-        fonts.f24 = makeFont(path, 24 * scale);
-        fonts.f52 = makeFont(path, 52 * scale);
+        fonts.f11 = makeFont(path, sized(11));
+        fonts.f12 = makeFont(path, sized(12));
+        fonts.f13 = makeFont(path, sized(13));
+        fonts.f14 = makeFont(path, sized(14));
+        fonts.f15 = makeFont(path, sized(15));
+        fonts.f16 = makeFont(path, sized(16));
+        fonts.f17 = makeFont(path, sized(17));
+        fonts.f18 = makeFont(path, sized(18));
+        fonts.f20 = makeFont(path, sized(20));
+        fonts.f21 = makeFont(path, sized(21));
+        fonts.f22 = makeFont(path, sized(22));
+        fonts.f24 = makeFont(path, sized(24));
+        fonts.f52 = makeFont(path, sized(52));
         if (fonts.f11 && fonts.f12 && fonts.f13 && fonts.f14 && fonts.f15 &&
             fonts.f16 && fonts.f17 && fonts.f18 && fonts.f20 && fonts.f21 &&
             fonts.f22 && fonts.f24 && fonts.f52)
@@ -387,7 +445,7 @@ struct LvglLauncherApp::Impl
 {
     // Display backend (window, frame submission, events, timing) and LVGL.
     std::unique_ptr<display::Display> surface;
-    int           renderScale = 1;
+    float         renderScale = 1.0f;
     lv_display_t* display     = nullptr;
     void*         drawBuf     = nullptr;
     std::size_t   drawBufSize = 0;
@@ -416,10 +474,13 @@ struct LvglLauncherApp::Impl
     std::deque<PointerSample> pointerQueue;
 
     // Layout values in the source are design units (1920x1080 canvas); every
-    // widget factory converts them to canvas pixels through this.
+    // widget factory converts them to canvas pixels through this. The scale is
+    // fractional so the canvas can match the window's drawable pixels 1:1.
     int px(int value) const
     {
-        return value == LV_SIZE_CONTENT ? value : value * renderScale;
+        if (value == LV_SIZE_CONTENT)
+            return value;
+        return static_cast<int>(std::lround(static_cast<double>(value) * renderScale));
     }
 
     Fonts fonts;
@@ -438,6 +499,7 @@ struct LvglLauncherApp::Impl
     int         tab       = 0;
     int         selected  = 0;
     int         scrollRow = 0;
+    int         libraryFilter = 0;  // 0 = all, 1 = favorites
     std::string query;
     bool        searchFocused = false;
     bool        searchInGroup = false;
@@ -522,10 +584,11 @@ struct LvglLauncherApp::Impl
     lv_obj_t* shelfEmpty    = nullptr;
     ShelfCard shelfCards[5];
     lv_obj_t* homeCount     = nullptr;
+    lv_obj_t* homeGridHeader = nullptr;
 
     // Grids.
     lv_obj_t*  homeGrid       = nullptr;
-    GridCard   homeCards[9];
+    GridCard   homeCards[18];
     lv_obj_t*  homeEmptyMsg   = nullptr;
     lv_obj_t*  homeEmptyHint  = nullptr;
     lv_obj_t*  homeTrack      = nullptr;
@@ -534,6 +597,8 @@ struct LvglLauncherApp::Impl
     lv_obj_t*  libraryGrid    = nullptr;
     GridCard   libraryCards[27];
     lv_obj_t*  libraryCount   = nullptr;
+    lv_obj_t*  libFilterPills[2] = {};
+    lv_obj_t*  libFilterLbl[2]   = {};
     lv_obj_t*  libraryEmptyMsg  = nullptr;
     lv_obj_t*  libraryEmptyHint = nullptr;
     lv_obj_t*  libraryTrack   = nullptr;
@@ -559,14 +624,60 @@ struct LvglLauncherApp::Impl
     lv_obj_t* rightHint      = nullptr;
     lv_obj_t* rightFooter    = nullptr;
     lv_obj_t* rightClose     = nullptr;
+    lv_obj_t* rightFav       = nullptr;
+    lv_obj_t* rightFavLbl    = nullptr;
     // The details panel is a drawer: hidden by default and shown when a game
     // is clicked. Keyboard navigation updates it without opening it.
     bool      rightOpen      = false;
 
-    // Settings.
-    lv_obj_t* settingsPath   = nullptr;
-    lv_obj_t* settingsPills[6] = {};
-    lv_obj_t* settingsPillLbl[6] = {};
+    // Settings page: a left sidebar plus a scrollable content area with six
+    // sections. Widgets are grouped by section.
+    lv_obj_t* settingsSidebar   = nullptr;
+    lv_obj_t* settingsNav[6]    = {};
+    lv_obj_t* settingsNavLbl[6] = {};
+    lv_obj_t* settingsContent   = nullptr;
+    lv_obj_t* settingsPanels[6] = {};
+    int       settingsSection   = 0;  // 0..5
+
+    lv_obj_t* libPathLabel    = nullptr;
+    lv_obj_t* libStatsLabel   = nullptr;
+    lv_obj_t* toggleRecursive = nullptr;
+    lv_obj_t* togglePatches   = nullptr;
+
+    lv_obj_t* resPills[6]      = {};
+    lv_obj_t* resPillLbl[6]    = {};
+    lv_obj_t* filterPills[4]   = {};
+    lv_obj_t* filterPillLbl[4] = {};
+    lv_obj_t* toggleAspect     = nullptr;
+    lv_obj_t* toggleInteger    = nullptr;
+    lv_obj_t* toggleVsync      = nullptr;
+
+    lv_obj_t* coverDirLabel     = nullptr;
+    lv_obj_t* toggleCovers      = nullptr;
+    lv_obj_t* coverStylePills[3] = {};
+    lv_obj_t* coverStyleLbl[3]   = {};
+
+    lv_obj_t* playerPills[2]   = {};
+    lv_obj_t* playerPillLbl[2] = {};
+    lv_obj_t* gpStatusLed      = nullptr;
+    lv_obj_t* gpStatusLbl      = nullptr;
+    struct GpChip { lv_obj_t* root = nullptr; lv_obj_t* lbl = nullptr; };
+    GpChip    gpChips[display::PadButtonCount];
+    struct AxisBar { lv_obj_t* fill = nullptr; lv_obj_t* val = nullptr; };
+    AxisBar   gpAxes[display::PadAxisCount];
+    lv_obj_t* gpLastInput      = nullptr;
+    lv_obj_t* toggleStickDpad  = nullptr;
+    lv_obj_t* sliderDeadzone   = nullptr;
+    lv_obj_t* deadzoneVal      = nullptr;
+    lv_obj_t* sliderTurbo      = nullptr;
+    lv_obj_t* turboVal         = nullptr;
+    int       gpPlayer         = 0;
+    bool      gpPrevBtn[display::PadButtonCount] = {};
+    struct PadShape { lv_obj_t* obj = nullptr; int buttonIndex = -1; };
+    PadShape  padShapes[display::PadButtonCount];
+    lv_obj_t* padStickNubL = nullptr;
+    lv_obj_t* padStickNubR = nullptr;
+    lv_obj_t* padDpadHits[4] = {};
 
     // Status.
     lv_obj_t* statusLib      = nullptr;
@@ -606,12 +717,18 @@ struct LvglLauncherApp::Impl
     void rebuildVisible();
     void rebuildRecent();
     void ensureSelectionVisible();
+    int  visibleRows() const;
     void selectRelative(int delta);
     void selectRomIndex(int romIndex);
     void changeResolution(int delta);
     void setResolution(int index);
     void launchSelected();
     void saveConfig();
+    bool isFavoritePath(const std::string& path) const;
+    void toggleFavorite();
+    void setLibraryFilter(int filter);
+    void setSettingsSection(int section);
+    void pollGamepad();
 
     int  selectedRomIndex() const;
     const RomEntry* selectedRom() const;
@@ -630,7 +747,7 @@ struct LvglLauncherApp::Impl
     void createStatusBar();
     void openRight();
     void closeRight();
-    void createArt(Art& art, lv_obj_t* parent, int x, int y, int w, int h);
+    void createArt(Art& art, lv_obj_t* parent, int x, int y, int w, int h, int radius);
     void createGridCards(lv_obj_t* parent, GridCard* cards, int count);
     void createShelfCards();
     lv_obj_t* makeBox(lv_obj_t* parent, int x, int y, int w, int h,
@@ -646,6 +763,10 @@ struct LvglLauncherApp::Impl
                          uint32_t textColor);
     lv_obj_t* makePill(lv_obj_t* parent, int x, int y, int w, int h,
                        int radius, const char* text, const lv_font_t* font);
+    lv_obj_t* makeToggle(lv_obj_t* parent, int x, int y, bool on);
+    void      setToggle(lv_obj_t* toggle, bool on);
+    lv_obj_t* makeCard(lv_obj_t* parent, int y, int h,
+                       const char* title, const char* hint);
     Tag       makeTag(lv_obj_t* parent);
     lv_obj_t* makeTagRow(lv_obj_t* parent, int x, int y);
     void      setTag(Tag& tag, const char* text, uint32_t textColor,
@@ -662,6 +783,7 @@ struct LvglLauncherApp::Impl
     void refreshRight();
     void refreshSettings();
     void refreshStatus();
+    void refreshLibraryFilter();
     void refreshCardHover(GridCard& card);
     void refreshShelfHover(ShelfCard& card);
     void updateArt(Art& art, const RomEntry* rom, bool darkFallback);
@@ -684,8 +806,18 @@ struct LvglLauncherApp::Impl
     static void rightPlayCb(lv_event_t* event);
     static void rightPillCb(lv_event_t* event);
     static void rightCloseCb(lv_event_t* event);
+    static void rightFavCb(lv_event_t* event);
+    static void libFilterCb(lv_event_t* event);
+    static void settingsNavCb(lv_event_t* event);
+    static void settingsToggleCb(lv_event_t* event);
+    static void settingsSegCb(lv_event_t* event);
     static void settingsRescanCb(lv_event_t* event);
-    static void settingsPillCb(lv_event_t* event);
+    static void settingsBrowseCb(lv_event_t* event);
+    static void deadzoneSliderCb(lv_event_t* event);
+    static void turboSliderCb(lv_event_t* event);
+    static void gpVibCb(lv_event_t* event);
+    static void gpResetCb(lv_event_t* event);
+    static void padPollCb(lv_timer_t* timer);
     static void pointerReadCb(lv_indev_t* indev, lv_indev_data_t* data);
 
     std::uint32_t lastClickTicks = 0;
@@ -720,7 +852,9 @@ bool LvglLauncherApp::Impl::init(const std::string& libraryOverride,
         return false;
     }
 
-    renderScale = std::max(1, surface->renderScale());
+    renderScale = surface->renderScale();
+    if (renderScale <= 0.0f)
+        renderScale = 1.0f;
     surface->setTextInput(true);
     s_active = this;
 
@@ -752,9 +886,11 @@ bool LvglLauncherApp::Impl::init(const std::string& libraryOverride,
 
     // Partial rendering into one band-sized buffer keeps latency low and
     // avoids a full-canvas frame buffer copy per redraw. The band scales with
-    // the render scale so it covers the same layout area at 1x and 2x.
+    // the render scale so it covers the same layout area at any scale.
+    const unsigned bandHeight = std::max(1u, static_cast<unsigned>(
+        std::lround(120.0 * renderScale)));
     drawBufSize = static_cast<std::size_t>(canvasWidth) *
-                  static_cast<std::size_t>(120u * static_cast<unsigned>(renderScale)) * 4u;
+                  static_cast<std::size_t>(bandHeight) * 4u;
     drawBuf     = std::malloc(drawBufSize);
     if (!drawBuf)
     {
@@ -818,6 +954,8 @@ bool LvglLauncherApp::Impl::init(const std::string& libraryOverride,
         tab = std::clamp(std::atoi(tabFromEnv), 0, 2);
         ensureSelectionVisible();
     }
+    if (const char* sectionFromEnv = std::getenv("ALLNES_LAUNCHER_SETTINGS"))
+        settingsSection = std::clamp(std::atoi(sectionFromEnv), 0, 5);
 
     if (!config.recent.empty())
     {
@@ -833,6 +971,10 @@ bool LvglLauncherApp::Impl::init(const std::string& libraryOverride,
 
     createUi();
     refreshAll();
+
+    // Poll raw gamepad state for the settings "input" panel at ~30 Hz. LVGL
+    // deletes this timer on lv_deinit(), before the Impl is destroyed.
+    lv_timer_create(&Impl::padPollCb, 33, this);
 
     // Screenshot/debug hook: open the detail drawer in the first frame.
     if (const char* details = std::getenv("ALLNES_LAUNCHER_DETAILS"))
@@ -948,11 +1090,56 @@ void LvglLauncherApp::Impl::saveConfig()
     saveLauncherConfig(configPath, config);
 }
 
+bool LvglLauncherApp::Impl::isFavoritePath(const std::string& path) const
+{
+    return std::find(config.favorites.begin(), config.favorites.end(), path) !=
+           config.favorites.end();
+}
+
+void LvglLauncherApp::Impl::toggleFavorite()
+{
+    const RomEntry* rom = selectedRom();
+    if (!rom)
+        return;
+
+    auto& favorites = config.favorites;
+    const auto it   = std::find(favorites.begin(), favorites.end(), rom->path);
+    if (it != favorites.end())
+    {
+        favorites.erase(it);
+        status = "已取消收藏: " + rom->title;
+    }
+    else
+    {
+        favorites.push_back(rom->path);
+        status = "已收藏: " + rom->title;
+    }
+    saveConfig();
+
+    // Unfavoriting the selected game removes it from the list when the
+    // favorites filter is active, so recompute the visible set.
+    rebuildVisible();
+    refreshAll();
+}
+
+void LvglLauncherApp::Impl::setLibraryFilter(int filter)
+{
+    libraryFilter = std::clamp(filter, 0, 1);
+    scrollRow = 0;
+    rebuildVisible();
+    refreshAll();
+}
+
 void LvglLauncherApp::Impl::rebuildVisible()
 {
     visible.clear();
+    // The favorites filter is a library-page concept: the home page keeps
+    // showing the full library regardless of the selected library filter.
+    const bool favoritesOnly = (tab == 1) && (libraryFilter == 1);
     for (std::size_t i = 0; i < roms.size(); ++i)
     {
+        if (favoritesOnly && !isFavoritePath(roms[i].path))
+            continue;
         if (query.empty() ||
             containsFold(roms[i].title, query) ||
             containsFold(roms[i].name, query))
@@ -975,9 +1162,16 @@ void LvglLauncherApp::Impl::rebuildRecent()
     {
         for (std::size_t i = 0; i < roms.size(); ++i)
         {
-            if (roms[i].path == path)
+            // Match by full path, or by file name so older relative-path
+            // entries still resolve against the current absolute scan paths.
+            const bool match = roms[i].path == path ||
+                fs::path(path).filename() == fs::path(roms[i].path).filename();
+            if (match)
             {
-                recent.push_back(static_cast<int>(i));
+                // Dedupe: the same game may appear under both path forms.
+                if (std::find(recent.begin(), recent.end(),
+                              static_cast<int>(i)) == recent.end())
+                    recent.push_back(static_cast<int>(i));
                 break;
             }
         }
@@ -993,7 +1187,7 @@ void LvglLauncherApp::Impl::rescan()
         oldIndex >= 0 ? roms[static_cast<std::size_t>(oldIndex)].path : std::string();
 
     std::string scanError;
-    roms      = scanLibrary(library, scanError);
+    roms      = scanLibrary(library, scanError, config.recursiveScan);
     error     = scanError;
     scrollRow = 0;
     rebuildRecent();
@@ -1016,6 +1210,13 @@ void LvglLauncherApp::Impl::rescan()
         refreshAll();
 }
 
+int LvglLauncherApp::Impl::visibleRows() const
+{
+    // The home page shows two rows when the "recent" section is collapsed, so
+    // the freed vertical space is filled instead of left blank.
+    return tab == 0 ? (recent.empty() ? 2 : 1) : kLibraryVisibleRows;
+}
+
 void LvglLauncherApp::Impl::ensureSelectionVisible()
 {
     const int count = static_cast<int>(visible.size());
@@ -1030,7 +1231,7 @@ void LvglLauncherApp::Impl::ensureSelectionVisible()
     if (tab == 2)
         return;
 
-    const int rows        = visibleRows(tab);
+    const int rows        = visibleRows();
     const int row         = selected / kColumns;
 
     if (row < scrollRow)
@@ -1143,6 +1344,7 @@ void LvglLauncherApp::Impl::setTab(int newTab)
 {
     tab = std::clamp(newTab, 0, 2);
     closeRight();
+    rebuildVisible();
     ensureSelectionVisible();
     refreshAll();
 }
@@ -1393,6 +1595,12 @@ void LvglLauncherApp::Impl::handleKey(const display::Event& key)
         return;
     }
 
+    if (!searchFocused && code == display::Key::F && !repeat)
+    {
+        toggleFavorite();
+        return;
+    }
+
     if (code == display::Key::F5 && !repeat)
     {
         rescan();
@@ -1468,10 +1676,10 @@ void LvglLauncherApp::Impl::handleKey(const display::Event& key)
             selectRelative(1);
         break;
     case display::Key::PageUp:
-        selectRelative(-kColumns * visibleRows(tab));
+        selectRelative(-kColumns * visibleRows());
         break;
     case display::Key::PageDown:
-        selectRelative(kColumns * visibleRows(tab));
+        selectRelative(kColumns * visibleRows());
         break;
     case display::Key::Home:
         selected = 0;
@@ -1610,6 +1818,46 @@ lv_obj_t* LvglLauncherApp::Impl::makePill(lv_obj_t* parent, int x, int y, int w,
     return pill;
 }
 
+lv_obj_t* LvglLauncherApp::Impl::makeToggle(lv_obj_t* parent, int x, int y, bool on)
+{
+    lv_obj_t* toggle = makeBox(parent, x, y, 44, 24, 12, 0xFFFFFF, 30);
+    lv_obj_set_clickable(toggle, true);
+    lv_obj_t* knob = makeBox(toggle, 3, 3, 18, 18, 9, 0xFFFFFF, LV_OPA_COVER);
+    lv_obj_set_clickable(knob, false);
+    setToggle(toggle, on);
+    return toggle;
+}
+
+void LvglLauncherApp::Impl::setToggle(lv_obj_t* toggle, bool on)
+{
+    if (!toggle)
+        return;
+    lv_obj_set_style_bg_color(toggle, col(on ? kGreenHex : 0xFFFFFF), 0);
+    lv_obj_set_style_bg_opa(toggle, on ? LV_OPA_COVER : 30, 0);
+    if (lv_obj_t* knob = lv_obj_get_child(toggle, 0))
+        lv_obj_set_pos(knob, px(on ? 23 : 3), px(3));
+}
+
+lv_obj_t* LvglLauncherApp::Impl::makeCard(lv_obj_t* parent, int y, int h,
+                                          const char* title, const char* hint)
+{
+    lv_obj_t* card = makeBox(parent, kSettingsCardX, y, kSettingsCardW, h, 14,
+                             0x1B1E26, LV_OPA_COVER);
+    lv_obj_set_style_clip_corner(card, true, 0);
+    lv_obj_set_style_border_width(card, px(1), 0);
+    lv_obj_set_style_border_color(card, col(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(card, 20, 0);
+    if (title)
+        makeLabel(card, title, fonts.f17, kTextHex, 30, 24);
+    if (hint)
+    {
+        lv_obj_t* hintLabel = makeLabel(card, hint, fonts.f12, kDimHex, 30, 54);
+        lv_obj_set_width(hintLabel, px(kSettingsCardW - 60));
+        lv_label_set_long_mode(hintLabel, LV_LABEL_LONG_MODE_DOTS);
+    }
+    return card;
+}
+
 LvglLauncherApp::Impl::Tag LvglLauncherApp::Impl::makeTag(lv_obj_t* parent)
 {
     Tag tag;
@@ -1656,9 +1904,9 @@ void LvglLauncherApp::Impl::setTag(Tag& tag, const char* text, uint32_t textColo
 }
 
 void LvglLauncherApp::Impl::createArt(Art& art, lv_obj_t* parent,
-                                      int x, int y, int w, int h)
+                                      int x, int y, int w, int h, int radius)
 {
-    art.box = makeBox(parent, x, y, w, h, 0, 0x222632, LV_OPA_COVER);
+    art.box = makeBox(parent, x, y, w, h, radius, 0x222632, LV_OPA_COVER);
     lv_obj_set_style_bg_grad_color(art.box, col(0x101116), 0);
     lv_obj_set_style_bg_grad_dir(art.box, LV_GRAD_DIR_VER, 0);
 
@@ -1704,7 +1952,7 @@ void LvglLauncherApp::Impl::createGridCards(lv_obj_t* parent, GridCard* cards, i
 
         card.mask = makeBox(card.root, 0, 0, kCardW, kCoverH, 12, 0x1A1D26, LV_OPA_COVER);
         lv_obj_set_style_clip_corner(card.mask, true, 0);
-        createArt(card.art, card.mask, 0, 0, kCardW, kCoverH);
+        createArt(card.art, card.mask, 0, 0, kCardW, kCoverH, 12);
 
         card.hover = makeBox(card.mask, 1, 1, kCardW - 2, kCoverH - 2,
                              11, 0x0A0B0F, 150);
@@ -1759,19 +2007,19 @@ void LvglLauncherApp::Impl::createShelfCards()
         lv_obj_set_style_border_color(card.root, col(0xFFFFFF), 0);
         lv_obj_set_style_border_opa(card.root, 22, 0);
 
-        createArt(card.art, card.root, 1, 1, kShelfCardW - 2, 96);
+        createArt(card.art, card.root, 1, 1, kShelfCardW - 2, 150, 11);
 
-        lv_obj_t* fade = makeBox(card.root, 1, 53, kShelfCardW - 2, 44,
+        lv_obj_t* fade = makeBox(card.root, 1, 106, kShelfCardW - 2, 44,
                                  0, 0x0C0D11, LV_OPA_TRANSP);
         lv_obj_set_style_bg_grad_color(fade, col(0x14161C), 0);
         lv_obj_set_style_bg_grad_opa(fade, 220, 0);
         lv_obj_set_style_bg_grad_dir(fade, LV_GRAD_DIR_VER, 0);
 
-        card.title = makeLabel(card.root, "", fonts.f14, kTextHex, 12, 102);
+        card.title = makeLabel(card.root, "", fonts.f14, kTextHex, 12, 158);
         lv_obj_set_width(card.title, px(kShelfCardW - 24));
         lv_label_set_long_mode(card.title, LV_LABEL_LONG_MODE_DOTS);
 
-        card.meta = makeLabel(card.root, "", fonts.f12, kMutedHex, 12, 122);
+        card.meta = makeLabel(card.root, "", fonts.f12, kMutedHex, 12, 178);
         lv_obj_set_width(card.meta, px(kShelfCardW - 24));
         lv_label_set_long_mode(card.meta, LV_LABEL_LONG_MODE_DOTS);
 
@@ -1849,17 +2097,17 @@ void LvglLauncherApp::Impl::createTopBar()
     lv_obj_set_style_border_opa(searchBox, 22, 0);
     lv_obj_add_event_cb(searchBox, &Impl::searchCb, LV_EVENT_CLICKED, this);
 
-    lv_obj_t* lens = makeBox(searchBox, 17, 15, 14, 14, 7,
+    lv_obj_t* lens = makeBox(searchBox, 14, 13, 16, 16, 8,
                              0x000000, LV_OPA_TRANSP);
-    lv_obj_set_style_border_width(lens, px(1), 0);
+    lv_obj_set_style_border_width(lens, px(2), 0);
     lv_obj_set_style_border_color(lens, col(kMutedHex), 0);
     lv_obj_set_style_border_opa(lens, LV_OPA_COVER, 0);
-    lv_obj_t* handle = makeBox(searchBox, 27, 28, 2, 7, 1, kMutedHex, LV_OPA_COVER);
+    lv_obj_t* handle = makeBox(searchBox, 26, 26, 10, 3, 2, kMutedHex, LV_OPA_COVER);
     lv_obj_set_style_transform_rotation(handle, 450, 0);
 
     searchArea = lv_textarea_create(searchBox);
-    lv_obj_set_pos(searchArea, px(42), px(10));
-    lv_obj_set_size(searchArea, px(246), px(24));
+    lv_obj_set_pos(searchArea, px(42), px(0));
+    lv_obj_set_size(searchArea, px(240), px(44));
     lv_textarea_set_one_line(searchArea, true);
     lv_textarea_set_max_length(searchArea, 64);
     lv_textarea_set_placeholder_text(searchArea, "搜索游戏库…");
@@ -1869,6 +2117,7 @@ void LvglLauncherApp::Impl::createTopBar()
     lv_obj_set_style_bg_opa(searchArea, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(searchArea, 0, 0);
     lv_obj_set_style_pad_all(searchArea, 0, 0);
+    lv_obj_set_style_pad_top(searchArea, px(13), 0);  // center the text vertically
     lv_obj_set_style_text_font(searchArea, fonts.f15, 0);
     lv_obj_set_style_text_color(searchArea, col(kTextHex), 0);
     lv_obj_set_style_text_color(searchArea, col(kFaintHex),
@@ -1896,33 +2145,35 @@ void LvglLauncherApp::Impl::createHomePage()
                      16, 0x222632, LV_OPA_COVER);
     lv_obj_set_style_clip_corner(banner, true, 0);
 
-    createArt(bannerArt, banner, 0, 0, kLeftW, kBannerH);
+    createArt(bannerArt, banner, 0, 0, kLeftW, kBannerH, 16);
     // The art fallback needs a vertical gradient, the banner art a horizontal
     // dark-to-transparent gradient plus a bottom fade.
     lv_obj_set_style_bg_grad_color(bannerArt.box, col(0x101116), 0);
     lv_obj_set_style_bg_grad_dir(bannerArt.box, LV_GRAD_DIR_VER, 0);
 
     lv_obj_t* leftShade = makeBox(banner, 0, 0, kLeftW, kBannerH,
-                                  0, 0x0C0D11, 242);
+                                  16, 0x0C0D11, 150);
+    lv_obj_set_style_clip_corner(leftShade, true, 0);
     lv_obj_set_style_bg_grad_color(leftShade, col(0x0C0D11), 0);
     lv_obj_set_style_bg_grad_opa(leftShade, 30, 0);
     lv_obj_set_style_bg_grad_dir(leftShade, LV_GRAD_DIR_HOR, 0);
 
     lv_obj_t* bottomShade = makeBox(banner, 0, kBannerH / 2, kLeftW, kBannerH / 2,
-                                    0, 0x0C0D11, LV_OPA_TRANSP);
+                                    16, 0x0C0D11, LV_OPA_TRANSP);
+    lv_obj_set_style_clip_corner(bottomShade, true, 0);
     lv_obj_set_style_bg_grad_color(bottomShade, col(0x0C0D11), 0);
     lv_obj_set_style_bg_grad_opa(bottomShade, 210, 0);
     lv_obj_set_style_bg_grad_dir(bottomShade, LV_GRAD_DIR_VER, 0);
 
-    bannerTags = makeTagRow(banner, 36, 232 - kBannerY);
+    bannerTags = makeTagRow(banner, 36, 196 - kBannerY);
     for (Tag& tag : bannerTag)
         tag = makeTag(bannerTags);
 
-    bannerTitle = makeLabel(banner, "", fonts.f52, kWhiteHex, 36, 258 - kBannerY);
+    bannerTitle = makeLabel(banner, "", fonts.f52, kWhiteHex, 36, 222 - kBannerY);
     lv_obj_set_width(bannerTitle, px(kLeftW - 240));
     lv_label_set_long_mode(bannerTitle, LV_LABEL_LONG_MODE_DOTS);
 
-    bannerMeta = makeLabel(banner, "", fonts.f15, kDimHex, 36, 322 - kBannerY);
+    bannerMeta = makeLabel(banner, "", fonts.f15, kDimHex, 36, 286 - kBannerY);
     lv_obj_set_width(bannerMeta, px(kLeftW - 240));
     lv_label_set_long_mode(bannerMeta, LV_LABEL_LONG_MODE_DOTS);
 
@@ -1970,7 +2221,8 @@ void LvglLauncherApp::Impl::createHomePage()
 
     createShelfCards();
 
-    makeLabel(homePage, "游戏库", fonts.f21, kTextHex, kLeftX, kHomeGridHeaderY);
+    homeGridHeader = makeLabel(homePage, "游戏库", fonts.f21, kTextHex,
+                               kLeftX, kHomeGridHeaderY);
     homeCount = makeLabel(homePage, "", fonts.f12, kMutedHex,
                           kLeftX + kLeftW - 400, kHomeGridHeaderY + 8);
     lv_obj_set_width(homeCount, px(400));
@@ -1978,7 +2230,7 @@ void LvglLauncherApp::Impl::createHomePage()
 
     homeGrid = makeBox(homePage, kLeftX, kHomeGridY, kLeftW, kHomeGridH,
                        0, 0x000000, LV_OPA_TRANSP);
-    createGridCards(homeGrid, homeCards, 9);
+    createGridCards(homeGrid, homeCards, 18);
 
     homeEmptyMsg = makeLabel(homeGrid, "", fonts.f18, kDimHex, 0, kHomeGridH / 2 - 34);
     lv_obj_set_width(homeEmptyMsg, px(kLeftW));
@@ -1999,10 +2251,24 @@ void LvglLauncherApp::Impl::createHomePage()
 
 void LvglLauncherApp::Impl::createLibraryPage()
 {
-    makeLabel(libraryPage, "游戏库", fonts.f21, kTextHex, kLeftX, kMainY);
+    makeLabel(libraryPage, "游戏库", fonts.f21, kTextHex, kLeftX, 112);
+
+    // Category filters. "收藏" is the first; more categories can be appended
+    // here without touching the grid logic.
+    static const char* filterNames[2] = { "全部", "收藏" };
+    for (int i = 0; i < 2; ++i)
+    {
+        const int fx = kLibraryFilterX + i * (kLibraryFilterW + kLibraryFilterGap);
+        libFilterPills[i] = makePill(libraryPage, fx, kLibraryFilterY,
+                                     kLibraryFilterW, kLibraryFilterH,
+                                     10, filterNames[i], fonts.f13);
+        libFilterLbl[i] = lv_obj_get_child(libFilterPills[i], 0);
+        lv_obj_add_event_cb(libFilterPills[i], &Impl::libFilterCb,
+                            LV_EVENT_CLICKED, this);
+    }
 
     libraryCount = makeLabel(libraryPage, "", fonts.f12, kMutedHex,
-                             kLeftX + kLeftW - 420, kMainY + 8);
+                             kLeftX + kLeftW - 420, 116);
     lv_obj_set_width(libraryCount, px(420));
     lv_obj_set_style_text_align(libraryCount, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_long_mode(libraryCount, LV_LABEL_LONG_MODE_DOTS);
@@ -2032,87 +2298,299 @@ void LvglLauncherApp::Impl::createLibraryPage()
 
 void LvglLauncherApp::Impl::createSettingsPage()
 {
-    lv_obj_t* panel = makeBox(settingsPage, kLeftX, kMainY, kLeftW, 876,
-                              16, 0xFFFFFF, 7);
-    lv_obj_set_style_border_width(panel, px(1), 0);
-    lv_obj_set_style_border_color(panel, col(0xFFFFFF), 0);
-    lv_obj_set_style_border_opa(panel, 22, 0);
+    static const char* navNames[6] = { "游戏库", "显示", "输入 · 手柄", "快捷键", "封面", "关于" };
 
-    makeLabel(panel, "设置", fonts.f24, kWhiteHex, 36, 28);
+    // ---- left sidebar ----
+    settingsSidebar = makeBox(settingsPage, kSettingsSidebarX, kSettingsSidebarY,
+                              kSettingsSidebarW, kSettingsSidebarH, 16, 0x101218, LV_OPA_COVER);
+    lv_obj_set_style_clip_corner(settingsSidebar, true, 0);
+    lv_obj_set_style_border_width(settingsSidebar, px(1), 0);
+    lv_obj_set_style_border_color(settingsSidebar, col(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(settingsSidebar, 18, 0);
 
-    makeLabel(panel, "游戏库", fonts.f17, kTextHex, 36, 82);
-    lv_obj_t* pathBox = makeBox(panel, 36, 112, 1040, 42, 10, 0xFFFFFF, 10);
+    // The top bar already shows the brand, so the sidebar starts directly with
+    // the section nav, top-aligned.
+    for (int i = 0; i < 6; ++i)
+    {
+        const int y = 8 + i * 50;
+        settingsNav[i] = makeBox(settingsSidebar, 12, y, kSettingsSidebarW - 24, 44,
+                                 10, kNavActiveHex, 0);
+        lv_obj_set_clickable(settingsNav[i], true);
+        settingsNavLbl[i] = makeLabel(settingsSidebar, navNames[i], fonts.f15,
+                                      kDimHex, 26, y + 12);
+        lv_obj_set_clickable(settingsNavLbl[i], false);
+        lv_obj_add_event_cb(settingsNav[i], &Impl::settingsNavCb, LV_EVENT_CLICKED, this);
+    }
+
+    makeLabel(settingsSidebar, "AllNES v0.2.0\nLVGL + FreeType\nWindows / macOS / Linux",
+              fonts.f11, kFaintHex, 24, kSettingsSidebarH - 64);
+
+    // ---- scrollable content area + six panels ----
+    settingsContent = makeBox(settingsPage, kSettingsContentX, kSettingsContentY,
+                              kSettingsContentW, kSettingsContentH, 16, 0x000000,
+                              LV_OPA_TRANSP);
+    lv_obj_set_scrollable(settingsContent, true);
+    lv_obj_set_scroll_dir(settingsContent, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(settingsContent, LV_SCROLLBAR_MODE_AUTO);
+
+    const int panelHeights[6] = { 470, 560, 1304, 440, 380, 260 };
+    for (int i = 0; i < 6; ++i)
+    {
+        settingsPanels[i] = makeBox(settingsContent, 0, 0, kSettingsContentW, panelHeights[i],
+                                    0, 0x000000, LV_OPA_TRANSP);
+        lv_obj_set_hidden(settingsPanels[i], i != 0);
+    }
+
+    auto pageHead = [&](lv_obj_t* panel, const char* title, const char* sub) {
+        makeLabel(panel, title, fonts.f24, kWhiteHex, kSettingsCardX, 0);
+        makeLabel(panel, sub, fonts.f12, kDimHex, kSettingsCardX, 36);
+    };
+    auto addToggleRow = [&](lv_obj_t* card, int y, const char* label, lv_obj_t*& toggle, bool on) {
+        makeLabel(card, label, fonts.f14, kTextHex, 30, y);
+        toggle = makeToggle(card, kSettingsCardW - 74, y - 10, on);
+        lv_obj_add_event_cb(toggle, &Impl::settingsToggleCb, LV_EVENT_CLICKED, this);
+    };
+
+    // ================= 0 游戏库 =================
+    lv_obj_t* lib = settingsPanels[0];
+    pageHead(lib, "游戏库", "ROM 目录与扫描");
+    lv_obj_t* c = makeCard(lib, 64, 200, "ROM 目录", nullptr);
+    makeLabel(c, "启动器直接扫描该目录下的 .nes 文件（不递归），库路径可用 --library 指定。",
+              fonts.f12, kDimHex, 30, 54);
+    lv_obj_t* pathBox = makeBox(c, 30, 92, 1080, 42, 10, 0x21252F, LV_OPA_COVER);
     lv_obj_set_style_border_width(pathBox, px(1), 0);
     lv_obj_set_style_border_color(pathBox, col(0xFFFFFF), 0);
-    lv_obj_set_style_border_opa(pathBox, 22, 0);
-    settingsPath = makeLabel(pathBox, "", fonts.f14, kAccentHex, 16, 12);
-    lv_obj_set_width(settingsPath, px(1008));
-    lv_label_set_long_mode(settingsPath, LV_LABEL_LONG_MODE_DOTS);
-
-    makeLabel(panel,
-              "启动器直接扫描该目录下的 .nes 文件（不递归），库路径可用 --library 指定。",
-              fonts.f12, kMutedHex, 36, 162);
-
-    lv_obj_t* rescan = makeButton(panel,
-                                  kSettingsRescanX - kLeftX,
-                                  kSettingsRescanY - kMainY,
-                                  kSettingsRescanW, kSettingsRescanH, 10,
-                                  0xFFFFFF, 18, 0xFFFFFF, 70,
-                                  "F5 重新扫描", fonts.f13, kTextHex);
+    lv_obj_set_style_border_opa(pathBox, 20, 0);
+    libPathLabel = makeLabel(pathBox, "", fonts.f13, kAccentHex, 16, 12);
+    lv_obj_set_width(libPathLabel, px(1048));
+    lv_label_set_long_mode(libPathLabel, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_t* browse = makeButton(c, 1126, 92, 150, 42, 10, 0x21252F, LV_OPA_COVER,
+                                  0xFFFFFF, 20, "选择文件夹…", fonts.f13, kTextHex);
+    lv_obj_add_event_cb(browse, &Impl::settingsBrowseCb, LV_EVENT_CLICKED, this);
+    lv_obj_t* rescan = makeButton(c, 1288, 92, 150, 42, 10, kAccentHex, LV_OPA_COVER,
+                                  kAccentHex, LV_OPA_COVER, "F5 重新扫描", fonts.f13, kWhiteHex);
     lv_obj_add_event_cb(rescan, &Impl::settingsRescanCb, LV_EVENT_CLICKED, this);
+    libStatsLabel = makeLabel(c, "", fonts.f12, kDimHex, 30, 150);
+    lv_obj_set_width(libStatsLabel, px(kSettingsCardW - 60));
+    lv_label_set_long_mode(libStatsLabel, LV_LABEL_LONG_MODE_DOTS);
 
-    makeBox(panel, 36, 200, kLeftW - 72, 1, 0, 0xFFFFFF, 22);
+    c = makeCard(lib, 284, 170, "扫描选项", nullptr);
+    makeLabel(c, "自动扫描子目录", fonts.f14, kTextHex, 30, 92);
+    toggleRecursive = makeToggle(c, 210, 88, config.recursiveScan);
+    lv_obj_add_event_cb(toggleRecursive, &Impl::settingsToggleCb, LV_EVENT_CLICKED, this);
+    makeLabel(c, "关闭时仅读取根目录", fonts.f12, kDimHex, 280, 96);
+    makeLabel(c, "识别补丁 ROM", fonts.f14, kTextHex, 30, 132);
+    togglePatches = makeToggle(c, 210, 128, config.detectPatches);
+    lv_obj_add_event_cb(togglePatches, &Impl::settingsToggleCb, LV_EVENT_CLICKED, this);
+    makeLabel(c, "自动检测 .ips / .bps 同名补丁并提示", fonts.f12, kDimHex, 280, 136);
 
-    makeLabel(panel, "窗口分辨率", fonts.f17, kTextHex, 36, 222);
+    // ================= 1 显示 =================
+    lv_obj_t* disp = settingsPanels[1];
+    pageHead(disp, "显示", "窗口与画面");
+    c = makeCard(disp, 64, 170, "窗口分辨率", "游戏窗口尺寸；游戏画面仍按整数倍缩放并保持宽高比。");
     for (int i = 0; i < resolutionPresetCount(); ++i)
     {
-        const int px = kSettingsX - kLeftX + i * (kSettingsPillW + kSettingsPillGap);
-        const int py = kSettingsPillY - kMainY;
-        settingsPills[i] = makePill(panel, px, py, kSettingsPillW, kSettingsPillH,
-                                    10, resolutionPresets()[i].label, fonts.f13);
-        settingsPillLbl[i] = lv_obj_get_child(settingsPills[i], 0);
-        lv_obj_add_event_cb(settingsPills[i], &Impl::settingsPillCb,
-                            LV_EVENT_CLICKED, this);
+        const int px = 30 + i * (150 + 10);
+        resPills[i] = makePill(c, px, 92, 150, 42, 10, resolutionPresets()[i].label, fonts.f13);
+        resPillLbl[i] = lv_obj_get_child(resPills[i], 0);
+        lv_obj_add_event_cb(resPills[i], &Impl::settingsSegCb, LV_EVENT_CLICKED, this);
     }
-    makeLabel(panel, "游戏窗口尺寸；游戏画面仍按整数倍缩放并保持宽高比。",
-              fonts.f12, kMutedHex, 36, 304);
 
-    makeBox(panel, 36, 338, kLeftW - 72, 1, 0, 0xFFFFFF, 22);
+    c = makeCard(disp, 254, 290, "画面", nullptr);
+    makeLabel(c, "像素滤镜", fonts.f14, kTextHex, 30, 92);
+    static const char* filterNames[4] = { "CRT 扫描线", "点阵（最近邻）", "双线性平滑", "LCD 网格" };
+    for (int i = 0; i < 4; ++i)
+    {
+        filterPills[i] = makePill(c, 30 + i * 174, 120, 164, 40, 10, filterNames[i], fonts.f12);
+        filterPillLbl[i] = lv_obj_get_child(filterPills[i], 0);
+        lv_obj_add_event_cb(filterPills[i], &Impl::settingsSegCb, LV_EVENT_CLICKED, this);
+    }
+    addToggleRow(c, 182, "保持 4:3 宽高比", toggleAspect, config.keepAspect);
+    addToggleRow(c, 222, "强制整数倍缩放", toggleInteger, config.integerScale);
+    addToggleRow(c, 262, "同步垂直刷新", toggleVsync, config.vsync);
 
-    makeLabel(panel, "快捷键", fonts.f17, kTextHex, 36, 360);
-    struct KeyHint { const char* key; const char* action; };
+    // ================= 2 输入 · 手柄 =================
+    lv_obj_t* pad = settingsPanels[2];
+    pageHead(pad, "输入 · 手柄", "手柄测试与按键绑定");
+
+    c = makeCard(pad, 64, 520, "手柄测试", nullptr);
+    for (int i = 0; i < 2; ++i)
+    {
+        playerPills[i] = makePill(c, 30 + i * 100, 88, 90, 36, 10,
+                                  i == 0 ? "玩家 1" : "玩家 2", fonts.f13);
+        playerPillLbl[i] = lv_obj_get_child(playerPills[i], 0);
+        lv_obj_add_event_cb(playerPills[i], &Impl::settingsSegCb, LV_EVENT_CLICKED, this);
+    }
+    gpStatusLed = makeBox(c, 250, 96, 10, 10, 5, 0x565D68, LV_OPA_COVER);
+    gpStatusLbl = makeLabel(c, "未检测到手柄", fonts.f13, kDimHex, 270, 92);
+    lv_obj_set_width(gpStatusLbl, px(540));
+    lv_label_set_long_mode(gpStatusLbl, LV_LABEL_LONG_MODE_DOTS);
+    lv_obj_t* vibBtn = makeButton(c, 880, 86, 130, 40, 10, 0x21252F, LV_OPA_COVER,
+                                  0xFFFFFF, 20, "测试震动", fonts.f13, kTextHex);
+    lv_obj_add_event_cb(vibBtn, &Impl::gpVibCb, LV_EVENT_CLICKED, this);
+    lv_obj_t* resetBtn = makeButton(c, 1020, 86, 150, 40, 10, 0x21252F, LV_OPA_COVER,
+                                    0xFF5F56, 60, "恢复默认映射", fonts.f13, 0xFF5F56);
+    lv_obj_add_event_cb(resetBtn, &Impl::gpResetCb, LV_EVENT_CLICKED, this);
+
+    // Left: a live gamepad visualizer. Shapes are registered in padShapes so
+    // pollGamepad() can light them up; stick nubs are moved by their axes.
+    lv_obj_t* padBox = makeBox(c, 30, 150, 540, 300, 16, 0x21252F, LV_OPA_COVER);
+    lv_obj_set_style_border_width(padBox, px(1), 0);
+    lv_obj_set_style_border_color(padBox, col(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(padBox, 20, 0);
+    auto hit = [&](lv_obj_t* parent, int x, int y, int w, int h, int radius,
+                   int buttonIndex, uint32_t color) {
+        lv_obj_t* o = makeBox(parent, x, y, w, h, radius, color, LV_OPA_COVER);
+        lv_obj_set_style_border_width(o, px(1), 0);
+        lv_obj_set_style_border_color(o, col(0xFFFFFF), 0);
+        lv_obj_set_style_border_opa(o, 30, 0);
+        lv_obj_set_clickable(o, false);
+        if (buttonIndex >= 0)
+        {
+            padShapes[buttonIndex].obj = o;
+            padShapes[buttonIndex].buttonIndex = buttonIndex;
+        }
+        return o;
+    };
+    // Xbox-style pad, scaled from the HTML mockup's 400x220 SVG viewBox.
+    lv_obj_t* body = makeBox(padBox, 78, 66, 384, 196, 70, 0x232733, LV_OPA_COVER);
+    lv_obj_set_style_border_width(body, px(2), 0);
+    lv_obj_set_style_border_color(body, col(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(body, 30, 0);
+    lv_obj_set_clickable(body, false);
+    // Shoulders / triggers.
+    hit(padBox, 135, 66, 65, 22, 11, display::PadLeftShoulder, 0x3A4050);
+    hit(padBox, 340, 66, 65, 22, 11, display::PadRightShoulder, 0x3A4050);
+    hit(padBox, 70, 88, 42, 18, 9, -1, 0x2E3340);
+    hit(padBox, 427, 88, 42, 18, 9, -1, 0x2E3340);
+    // D-pad cross (top-left).
+    hit(padBox, 130, 120, 18, 21, 6, display::PadDpadUp, 0x3A4050);
+    hit(padBox, 130, 154, 18, 21, 6, display::PadDpadDown, 0x3A4050);
+    hit(padBox, 111, 139, 21, 18, 6, display::PadDpadLeft, 0x3A4050);
+    hit(padBox, 145, 139, 21, 18, 6, display::PadDpadRight, 0x3A4050);
+    makeBox(padBox, 130, 139, 18, 18, 6, 0x3A4050, LV_OPA_COVER); // center
+    // Sticks (outer ring + movable nub).
+    makeBox(padBox, 182, 140, 46, 46, 23, 0xFFFFFF, 14);
+    padStickNubL = hit(padBox, 191, 149, 28, 28, 14, display::PadLeftStick, 0x3A4050);
+    makeBox(padBox, 312, 140, 46, 46, 23, 0xFFFFFF, 14);
+    padStickNubR = hit(padBox, 321, 149, 28, 28, 14, display::PadRightStick, 0x3A4050);
+    // ABXY (right diamond).
+    hit(padBox, 439, 137, 32, 32, 16, display::PadA, 0x3A4050);
+    hit(padBox, 404, 162, 32, 32, 16, display::PadB, 0x3A4050);
+    hit(padBox, 404, 112, 32, 32, 16, display::PadX, 0x3A4050);
+    hit(padBox, 369, 137, 32, 32, 16, display::PadY, 0x3A4050);
+    // Select / Start (center).
+    hit(padBox, 245, 153, 37, 13, 6, display::PadBack, 0x3A4050);
+    hit(padBox, 297, 153, 37, 13, 6, display::PadStart, 0x3A4050);
+
+    // Right: button chips + axis monitor + last input.
+    for (int i = 0; i < display::PadButtonCount; ++i)
+    {
+        const int colX = 600 + (i % 5) * 112;
+        const int rowY = 150 + (i / 5) * 38;
+        gpChips[i].root = makeBox(c, colX, rowY, 106, 32, 8, 0xFFFFFF, 0);
+        lv_obj_set_style_border_width(gpChips[i].root, px(1), 0);
+        lv_obj_set_style_border_color(gpChips[i].root, col(0xFFFFFF), 0);
+        lv_obj_set_style_border_opa(gpChips[i].root, 30, 0);
+        gpChips[i].lbl = makeCenteredLabel(gpChips[i].root, kPadButtonNames[i],
+                                           fonts.f12, kDimHex);
+    }
+    for (int i = 0; i < display::PadAxisCount; ++i)
+    {
+        const int rowY = 280 + i * 36;
+        makeLabel(c, kPadAxisNames[i], fonts.f12, kDimHex, 600, rowY);
+        lv_obj_t* track = makeBox(c, 720, rowY + 5, 260, 8, 4, 0xFFFFFF, 16);
+        gpAxes[i].fill = makeBox(track, 0, 0, 0, 8, 4, kAccentHex, LV_OPA_COVER);
+        gpAxes[i].val = makeLabel(c, "0.00", fonts.f12, kMutedHex, 990, rowY);
+        lv_obj_set_width(gpAxes[i].val, px(64));
+        lv_obj_set_style_text_align(gpAxes[i].val, LV_TEXT_ALIGN_RIGHT, 0);
+    }
+    gpLastInput = makeLabel(c, "最后输入：—", fonts.f12, kDimHex, 600, 500);
+    lv_obj_set_width(gpLastInput, px(540));
+
+    // ---- 按键绑定 ----
+    c = makeCard(pad, 604, 360, "按键绑定", "按键绑定由模拟器 keybindings.conf 管理（模拟器层）。");
+    for (int i = 0; i < static_cast<int>(sizeof(kDefaultBinds) / sizeof(kDefaultBinds[0])); ++i)
+    {
+        const int colX = 30 + (i / 6) * 620;
+        const int rowY = 92 + (i % 6) * 40;
+        makeLabel(c, kDefaultBinds[i].label, fonts.f13, kTextHex, colX, rowY);
+        makeLabel(c, kDefaultBinds[i].binding, fonts.f13, kMutedHex, colX + 140, rowY);
+    }
+
+    // ---- 高级 ----
+    c = makeCard(pad, 984, 300, "高级", nullptr);
+    addToggleRow(c, 92, "摇杆模拟十字键", toggleStickDpad, config.stickToDpad);
+    makeLabel(c, "摇杆死区", fonts.f14, kTextHex, 30, 132);
+    sliderDeadzone = lv_slider_create(c);
+    lv_obj_set_pos(sliderDeadzone, px(150), px(128));
+    lv_obj_set_size(sliderDeadzone, px(300), px(10));
+    lv_slider_set_range(sliderDeadzone, 0, 50);
+    lv_slider_set_value(sliderDeadzone, static_cast<int>(config.deadzone * 100.0f), LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(sliderDeadzone, col(0xFFFFFF), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(sliderDeadzone, 16, LV_PART_MAIN);
+    lv_obj_add_event_cb(sliderDeadzone, &Impl::deadzoneSliderCb, LV_EVENT_VALUE_CHANGED, this);
+    deadzoneVal = makeLabel(c, "0.15", fonts.f12, kMutedHex, 470, 126);
+    makeLabel(c, "连发速度", fonts.f14, kTextHex, 30, 172);
+    sliderTurbo = lv_slider_create(c);
+    lv_obj_set_pos(sliderTurbo, px(150), px(168));
+    lv_obj_set_size(sliderTurbo, px(300), px(10));
+    lv_slider_set_range(sliderTurbo, 1, 30);
+    lv_slider_set_value(sliderTurbo, config.turbo, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(sliderTurbo, col(0xFFFFFF), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(sliderTurbo, 16, LV_PART_MAIN);
+    lv_obj_add_event_cb(sliderTurbo, &Impl::turboSliderCb, LV_EVENT_VALUE_CHANGED, this);
+    turboVal = makeLabel(c, "12 / 帧", fonts.f12, kMutedHex, 470, 166);
+
+    // ================= 3 快捷键 =================
+    lv_obj_t* keys = settingsPanels[3];
+    pageHead(keys, "快捷键", "启动器与模拟器全局热键");
+    c = makeCard(keys, 64, 340, "快捷键", nullptr);
+    struct KeyHint { const char* k; const char* a; };
     const KeyHint hints[] = {
-        { "↑ ↓ ← →", "选择游戏" },
-        { "Enter", "启动选中的游戏" },
-        { "双击卡片", "直接启动" },
-        { "/", "聚焦搜索框" },
-        { "F5", "重新扫描游戏库" },
-        { "[  ]", "切换窗口分辨率" },
-        { "F11", "启动器全屏" },
-        { "Esc", "清除搜索 / 返回 / 退出" },
+        { "↑ ↓ ← →", "选择游戏" }, { "Enter", "启动选中的游戏" },
+        { "双击卡片", "直接启动" }, { "/", "聚焦搜索框" },
+        { "F5", "重新扫描游戏库" }, { "F", "收藏 / 取消收藏" },
+        { "[  ]", "切换窗口分辨率" }, { "F11", "启动器全屏" },
+        { "Esc", "清除搜索 / 返回 / 退出" }, { "F1 · F2", "即时存档 / 读档" },
     };
     for (int i = 0; i < static_cast<int>(sizeof(hints) / sizeof(hints[0])); ++i)
     {
-        const int columnX = 36 + (i / 4) * 620;
-        const int rowY    = 396 + (i % 4) * 30;
-        makeLabel(panel, hints[i].key, fonts.f13, kAccentHex, columnX, rowY);
-        makeLabel(panel, hints[i].action, fonts.f13, kDimHex, columnX + 120, rowY);
+        const int colX = 30 + (i / 5) * 640;
+        const int rowY = 88 + (i % 5) * 44;
+        makeLabel(c, hints[i].k, fonts.f13, kAccentHex, colX, rowY);
+        makeLabel(c, hints[i].a, fonts.f13, kDimHex, colX + 140, rowY);
     }
 
-    makeBox(panel, 36, 530, kLeftW - 72, 1, 0, 0xFFFFFF, 22);
+    // ================= 4 封面 =================
+    lv_obj_t* cover = settingsPanels[4];
+    pageHead(cover, "封面", "游戏库封面图");
+    c = makeCard(cover, 64, 260, "封面目录", nullptr);
+    makeLabel(c, "把任意 3:4 的 PNG / JPEG 命名为「ROM 文件名.png」，放到游戏库的 images/ 目录即可显示。",
+              fonts.f12, kDimHex, 30, 54);
+    coverDirLabel = makeLabel(c, "", fonts.f13, kAccentHex, 30, 92);
+    lv_obj_set_width(coverDirLabel, px(kSettingsCardW - 60));
+    lv_label_set_long_mode(coverDirLabel, LV_LABEL_LONG_MODE_DOTS);
+    addToggleRow(c, 132, "显示封面（关闭后网格只显示标题）", toggleCovers, config.showCovers);
+    makeLabel(c, "占位图风格", fonts.f14, kTextHex, 30, 172);
+    static const char* styleNames[3] = { "像素马赛克", "纯色 + 首字母", "灰色占位" };
+    for (int i = 0; i < 3; ++i)
+    {
+        coverStylePills[i] = makePill(c, 30 + i * 190, 196, 180, 40, 10, styleNames[i], fonts.f12);
+        coverStyleLbl[i] = lv_obj_get_child(coverStylePills[i], 0);
+        lv_obj_add_event_cb(coverStylePills[i], &Impl::settingsSegCb, LV_EVENT_CLICKED, this);
+    }
 
-    makeLabel(panel, "封面", fonts.f17, kTextHex, 36, 552);
-    lv_obj_t* coverHint = makeLabel(panel,
-        "把任意 3:4 的 PNG/JPEG 命名为「ROM 文件名.png」，放到游戏库的 images/ "
-        "目录即可显示；没有封面的游戏会自动生成像素风占位图。",
-        fonts.f13, kDimHex, 36, 584);
-    lv_obj_set_width(coverHint, px(1180));
-    lv_label_set_long_mode(coverHint, LV_LABEL_LONG_MODE_WRAP);
-
-    makeLabel(panel, "AllNES 启动器 · LVGL + FreeType · Windows / macOS / Linux",
-              fonts.f12, kFaintHex, 36, 720);
-    makeLabel(panel, "ROM 库中的游戏会显示真实的 mapper、文件大小与运行状态。",
-              fonts.f12, kFaintHex, 36, 742);
+    // ================= 5 关于 =================
+    lv_obj_t* about = settingsPanels[5];
+    pageHead(about, "关于", "");
+    c = makeCard(about, 64, 190, "AllNES", nullptr);
+    makeLabel(c, "版本 v0.2.0 · LVGL + FreeType", fonts.f14, kTextHex, 30, 62);
+    makeLabel(c, "Windows / macOS / Linux", fonts.f13, kDimHex, 30, 90);
+    makeLabel(c, "启动器可显示真实的 mapper、文件大小与运行状态。", fonts.f13, kDimHex, 30, 114);
+    makeButton(c, 30, 142, 130, 40, 10, 0x21252F, LV_OPA_COVER, 0xFFFFFF, 20, "检查更新", fonts.f13, kTextHex);
+    makeButton(c, 170, 142, 130, 40, 10, 0x21252F, LV_OPA_COVER, 0xFFFFFF, 20, "开源许可", fonts.f13, kTextHex);
+    makeButton(c, 310, 142, 130, 40, 10, 0x21252F, LV_OPA_COVER, 0xFFFFFF, 20, "日志目录", fonts.f13, kTextHex);
 }
 
 void LvglLauncherApp::Impl::createRightPanel()
@@ -2130,7 +2608,7 @@ void LvglLauncherApp::Impl::createRightPanel()
     lv_obj_set_style_shadow_offset_x(rightPanel, px(-10), 0);
     lv_obj_set_style_shadow_offset_y(rightPanel, px(6), 0);
 
-    createArt(rightArt, rightPanel, 1, 1, kRightW - 2, 250);
+    createArt(rightArt, rightPanel, 1, 1, kRightW - 2, 250, 15);
     lv_obj_set_style_bg_grad_color(rightArt.box, col(0x16171D), 0);
     lv_obj_set_style_bg_grad_dir(rightArt.box, LV_GRAD_DIR_VER, 0);
 
@@ -2223,6 +2701,16 @@ void LvglLauncherApp::Impl::createRightPanel()
     makeCenteredLabel(rightClose, "×", fonts.f18, kTextHex);
     lv_obj_add_event_cb(rightClose, &Impl::rightCloseCb, LV_EVENT_CLICKED, this);
 
+    // Favorite toggle floats over the cover next to the close button.
+    rightFav = makeBox(rightPanel, kRightW - 96, 12, 36, 36, 18,
+                       0x0E0F13, 220);
+    lv_obj_set_clickable(rightFav, true);
+    lv_obj_set_style_border_width(rightFav, px(1), 0);
+    lv_obj_set_style_border_color(rightFav, col(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(rightFav, 70, 0);
+    rightFavLbl = makeCenteredLabel(rightFav, "☆", fonts.f18, kTextHex);
+    lv_obj_add_event_cb(rightFav, &Impl::rightFavCb, LV_EVENT_CLICKED, this);
+
     lv_obj_set_hidden(rightPanel, true);
     rightOpen = false;
 }
@@ -2295,6 +2783,21 @@ void LvglLauncherApp::Impl::updateArt(Art& art, const RomEntry* rom, bool darkFa
         top    = 0x222632;
         bottom = 0x101116;
     }
+
+    lv_opa_t glyphOpa = 38;
+    switch (config.coverStyle)
+    {
+    case 1: // solid + initial
+        bottom = top;
+        glyphOpa = 130;
+        break;
+    case 2: // gray placeholder
+        top = bottom = 0x262A33;
+        glyphOpa = 110;
+        break;
+    default: // pixel mosaic gradient
+        break;
+    }
     lv_obj_set_style_bg_color(art.box, col(top), 0);
     lv_obj_set_style_bg_grad_color(art.box, col(bottom), 0);
 
@@ -2302,8 +2805,9 @@ void LvglLauncherApp::Impl::updateArt(Art& art, const RomEntry* rom, bool darkFa
     const char* current = lv_label_get_text(art.initial);
     if (!current || glyph != current)
         lv_label_set_text(art.initial, glyph.c_str());
+    lv_obj_set_style_text_opa(art.initial, glyphOpa, 0);
 
-    if (rom && !rom->coverPath.empty())
+    if (rom && !rom->coverPath.empty() && config.showCovers)
     {
         const std::string src = "A:" + rom->coverPath;
         bool usable = true;
@@ -2455,7 +2959,12 @@ void LvglLauncherApp::Impl::refreshBanner()
 void LvglLauncherApp::Impl::refreshShelf()
 {
     const int count = std::min<int>(5, static_cast<int>(recent.size()));
-    lv_obj_set_hidden(shelfEmpty, count != 0);
+    const bool hasRecent = count != 0;
+
+    // With no play history the whole section collapses and the grid moves up.
+    lv_obj_set_hidden(shelfHeader, !hasRecent);
+    lv_obj_set_hidden(shelfSub, !hasRecent);
+    lv_obj_set_hidden(shelfEmpty, !hasRecent);
 
     for (int i = 0; i < 5; ++i)
     {
@@ -2488,6 +2997,16 @@ void LvglLauncherApp::Impl::refreshShelf()
         lv_obj_set_hidden(card.root, false);
         refreshShelfHover(card);
     }
+
+    const int gridHeaderY = hasRecent ? kHomeGridHeaderY : kHomeEmptyHeaderY;
+    const int gridY       = hasRecent ? kHomeGridY       : kHomeEmptyGridY;
+    const int gridH       = hasRecent ? kHomeGridH       : kHomeGridEmptyH;
+    // Collapse the hero so two full card rows fit in the freed space.
+    lv_obj_set_height(banner, px(hasRecent ? kBannerH : kBannerHEmpty));
+    lv_obj_set_pos(homeGridHeader, px(kLeftX), px(gridHeaderY));
+    lv_obj_set_pos(homeCount, px(kLeftX + kLeftW - 400), px(gridHeaderY + 8));
+    lv_obj_set_pos(homeGrid, px(kLeftX), px(gridY));
+    lv_obj_set_size(homeGrid, px(kLeftW), px(gridH));
 }
 
 void LvglLauncherApp::Impl::refreshShelfHover(ShelfCard& card)
@@ -2499,10 +3018,11 @@ void LvglLauncherApp::Impl::refreshShelfHover(ShelfCard& card)
 void LvglLauncherApp::Impl::refreshGrid(bool home)
 {
     GridCard* cards = home ? homeCards : libraryCards;
-    const int slots = home ? 9 : 27;
-    const int rows  = home ? 1 : 3;
+    const int homeRows = recent.empty() ? 2 : 1;
+    const int slots = home ? homeRows * kColumns : 27;
+    const int rows  = home ? homeRows : 3;
     const int areaW = kLeftW;
-    const int areaH = home ? kHomeGridH : kLibraryGridH;
+    const int areaH = home ? (recent.empty() ? kHomeGridEmptyH : kHomeGridH) : kLibraryGridH;
 
     const int total = static_cast<int>(visible.size());
     const bool empty = total == 0;
@@ -2511,11 +3031,23 @@ void LvglLauncherApp::Impl::refreshGrid(bool home)
     lv_obj_set_hidden(home ? homeEmptyHint : libraryEmptyHint, !empty);
     if (empty)
     {
-        const std::string message = query.empty() ? "这个游戏库里还没有游戏"
-                                                  : "没有找到匹配的游戏";
-        const std::string hint = query.empty()
-            ? "把 .nes 文件放进游戏库目录，然后按 F5 重新扫描"
-            : "试试别的关键词，或按 Esc 清除搜索";
+        std::string message;
+        std::string hint;
+        if (!home && libraryFilter == 1)
+        {
+            message = "还没有收藏任何游戏";
+            hint = "在游戏详情面板点 ☆，或选中游戏后按 F 收藏";
+        }
+        else if (query.empty())
+        {
+            message = "这个游戏库里还没有游戏";
+            hint = "把 .nes 文件放进游戏库目录，然后按 F5 重新扫描";
+        }
+        else
+        {
+            message = "没有找到匹配的游戏";
+            hint = "试试别的关键词，或按 Esc 清除搜索";
+        }
         lv_label_set_text(home ? homeEmptyMsg : libraryEmptyMsg, message.c_str());
         lv_label_set_text(home ? homeEmptyHint : libraryEmptyHint, hint.c_str());
     }
@@ -2580,7 +3112,7 @@ void LvglLauncherApp::Impl::refreshGrid(bool home)
     // like the SDL launcher: the third row is a preview of what comes next.
     lv_obj_t* track = home ? homeTrack : libraryTrack;
     lv_obj_t* thumb = home ? homeThumb : libraryThumb;
-    const int fullRows = visibleRows(home ? 0 : 1);
+    const int fullRows = home ? homeRows : kLibraryVisibleRows;
     const int rowCount = (total + kColumns - 1) / kColumns;
     if (rowCount > fullRows && total > 0)
     {
@@ -2649,8 +3181,8 @@ void LvglLauncherApp::Impl::refreshRight()
         setTag(rightTag[2], "2P 按键", kDimHex, 0xFFFFFF, 12, 0xFFFFFF, 22);
 
         lv_label_set_text(rightDesc,
-            "按 Enter 或点击下方按钮启动游戏。游戏内按 Esc 返回启动器，F11 切换全屏，"
-            "Ctrl+R 复位。继续游戏会记住最近启动的顺序。");
+            "按 Enter 或点击下方按钮启动游戏，按 F 或点右上角 ☆ 收藏。"
+            "游戏内按 Esc 返回启动器，F11 切换全屏，Ctrl+R 复位。");
         lv_label_set_text(rightHint, rom->supported ? "Enter 也可直接启动"
                                                     : "该 ROM 暂不支持");
         lv_obj_set_style_text_color(rightHint,
@@ -2668,6 +3200,10 @@ void LvglLauncherApp::Impl::refreshRight()
         lv_label_set_text(rightHint, "先选择一款游戏");
         lv_obj_set_style_text_color(rightHint, col(kOrangeTextHex), 0);
     }
+
+    const bool fav = rom && isFavoritePath(rom->path);
+    lv_label_set_text(rightFavLbl, fav ? "★" : "☆");
+    lv_obj_set_style_text_color(rightFavLbl, col(fav ? kAccentHex : kTextHex), 0);
 
     for (int i = 0; i < resolutionPresetCount(); ++i)
     {
@@ -2689,11 +3225,130 @@ void LvglLauncherApp::Impl::refreshRight()
 
 void LvglLauncherApp::Impl::refreshSettings()
 {
-    lv_label_set_text(settingsPath, library.c_str());
-    for (int i = 0; i < resolutionPresetCount(); ++i)
+    if (!settingsSidebar)
+        return;
+
+    // Library.
+    lv_label_set_text(libPathLabel, library.c_str());
+    const int total = static_cast<int>(roms.size());
+    long long totalBytes = 0;
+    int covers = 0;
+    for (const RomEntry& rom : roms)
     {
-        setPillActive(settingsPills[i], settingsPillLbl[i],
-                      i == config.resolutionIndex);
+        totalBytes += rom.sizeBytes;
+        if (!rom.coverPath.empty())
+            ++covers;
+    }
+    lv_label_set_text(libStatsLabel,
+        ("当前库：" + std::to_string(total) + " 个 ROM · 占用 " + formatSize(totalBytes) +
+         " · 封面 " + std::to_string(covers) + "/" + std::to_string(total)).c_str());
+    setToggle(toggleRecursive, config.recursiveScan);
+    setToggle(togglePatches, config.detectPatches);
+
+    // Display.
+    for (int i = 0; i < resolutionPresetCount(); ++i)
+        setPillActive(resPills[i], resPillLbl[i], i == config.resolutionIndex);
+    for (int i = 0; i < 4; ++i)
+        setPillActive(filterPills[i], filterPillLbl[i], i == config.pixelFilter);
+    setToggle(toggleAspect, config.keepAspect);
+    setToggle(toggleInteger, config.integerScale);
+    setToggle(toggleVsync, config.vsync);
+
+    // Cover.
+    lv_label_set_text(coverDirLabel,
+        (library.empty() ? std::string(".") : library + "/images").c_str());
+    setToggle(toggleCovers, config.showCovers);
+    for (int i = 0; i < 3; ++i)
+        setPillActive(coverStylePills[i], coverStyleLbl[i], i == config.coverStyle);
+
+    // Gamepad.
+    for (int i = 0; i < 2; ++i)
+        setPillActive(playerPills[i], playerPillLbl[i], i == gpPlayer);
+    setToggle(toggleStickDpad, config.stickToDpad);
+
+    for (int i = 0; i < 6; ++i)
+    {
+        lv_obj_set_hidden(settingsPanels[i], i != settingsSection);
+        lv_obj_set_style_bg_opa(settingsNav[i],
+                                i == settingsSection ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+        lv_obj_set_style_text_color(settingsNavLbl[i],
+                                    col(i == settingsSection ? kWhiteHex : kDimHex), 0);
+    }
+}
+
+void LvglLauncherApp::Impl::setSettingsSection(int section)
+{
+    settingsSection = std::clamp(section, 0, 5);
+    if (settingsContent)
+        lv_obj_scroll_to_y(settingsContent, 0, LV_ANIM_OFF);
+    refreshSettings();
+}
+
+void LvglLauncherApp::Impl::pollGamepad()
+{
+    if (!surface || tab != 2 || settingsSection != 2 || !gpChips[0].root)
+        return;
+
+    const int slot = gpPlayer;
+    const bool connected = surface->padCount() > slot;
+
+    lv_obj_set_style_bg_color(gpStatusLed, col(connected ? kGreenHex : 0x565D68), 0);
+    if (connected)
+    {
+        const std::string name = surface->padName(slot);
+        lv_label_set_text(gpStatusLbl,
+            (name.empty() ? ("手柄 " + std::to_string(slot + 1)) : name).c_str());
+    }
+    else
+    {
+        lv_label_set_text(gpStatusLbl, "未检测到手柄 · 按任意键唤醒");
+    }
+
+    for (int i = 0; i < display::PadButtonCount; ++i)
+    {
+        const bool on = connected && surface->padButton(slot, i);
+        lv_obj_set_style_bg_opa(gpChips[i].root, on ? 38 : 0, 0);
+        lv_obj_set_style_border_color(gpChips[i].root, col(on ? kAccentHex : 0xFFFFFF), 0);
+        lv_obj_set_style_border_opa(gpChips[i].root, on ? 255 : 30, 0);
+        lv_obj_set_style_text_color(gpChips[i].lbl, col(on ? kWhiteHex : kDimHex), 0);
+
+        if (padShapes[i].obj)
+        {
+            lv_obj_set_style_bg_color(padShapes[i].obj, col(on ? kAccentHex : 0x3A4050), 0);
+            lv_obj_set_style_border_opa(padShapes[i].obj, on ? 255 : 30, 0);
+        }
+
+        if (on && !gpPrevBtn[i])
+            lv_label_set_text(gpLastInput, ("最后输入：" + std::string(kPadButtonNames[i])).c_str());
+        gpPrevBtn[i] = on;
+    }
+
+    for (int i = 0; i < display::PadAxisCount; ++i)
+    {
+        const int raw = connected ? surface->padAxis(slot, i) : 0;
+        const float v = i < 4 ? raw / 32768.0f : raw / 32767.0f;
+        const int pct = i < 4 ? static_cast<int>((v + 1.0f) * 50.0f)
+                              : static_cast<int>(v * 100.0f);
+        lv_obj_set_width(gpAxes[i].fill, px(260 * std::clamp(pct, 0, 100) / 100));
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), i < 4 ? "%+.2f" : "%.2f", v);
+        lv_label_set_text(gpAxes[i].val, buf);
+    }
+
+    // Move the visualizer stick nubs to mirror the left/right sticks.
+    if (connected && padStickNubL)
+    {
+        const float lx = surface->padAxis(slot, display::PadLeftX) / 32768.0f;
+        const float ly = surface->padAxis(slot, display::PadLeftY) / 32768.0f;
+        lv_obj_set_pos(padStickNubL, px(191 + static_cast<int>(lx * 9)),
+                       px(149 - static_cast<int>(ly * 9)));
+    }
+    if (connected && padStickNubR)
+    {
+        const float rx = surface->padAxis(slot, display::PadRightX) / 32768.0f;
+        const float ry = surface->padAxis(slot, display::PadRightY) / 32768.0f;
+        lv_obj_set_pos(padStickNubR, px(321 + static_cast<int>(rx * 9)),
+                       px(149 - static_cast<int>(ry * 9)));
     }
 }
 
@@ -2739,6 +3394,12 @@ void LvglLauncherApp::Impl::refreshStatus()
     lv_obj_align_to(statusMessage, statusSep, LV_ALIGN_OUT_LEFT_MID, px(-18), 0);
 }
 
+void LvglLauncherApp::Impl::refreshLibraryFilter()
+{
+    for (int i = 0; i < 2; ++i)
+        setPillActive(libFilterPills[i], libFilterLbl[i], i == libraryFilter);
+}
+
 void LvglLauncherApp::Impl::refreshAll()
 {
     if (!screen)
@@ -2746,6 +3407,7 @@ void LvglLauncherApp::Impl::refreshAll()
     refreshPages();
     refreshHome();
     refreshGrid(false);
+    refreshLibraryFilter();
     refreshSettings();
     refreshRight();
     refreshStatus();
@@ -2920,6 +3582,144 @@ void LvglLauncherApp::Impl::rightCloseCb(lv_event_t* event)
         app->closeRight();
 }
 
+void LvglLauncherApp::Impl::rightFavCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    if (app)
+        app->toggleFavorite();
+}
+
+void LvglLauncherApp::Impl::libFilterCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    lv_obj_t* target = lv_event_get_target_obj(event);
+    if (!app || !target)
+        return;
+    for (int i = 0; i < 2; ++i)
+    {
+        if (app->libFilterPills[i] == target)
+        {
+            app->setLibraryFilter(i);
+            return;
+        }
+    }
+}
+
+void LvglLauncherApp::Impl::settingsNavCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    lv_obj_t* target = lv_event_get_target_obj(event);
+    if (!app || !target)
+        return;
+    for (int i = 0; i < 6; ++i)
+    {
+        if (app->settingsNav[i] == target)
+        {
+            app->setSettingsSection(i);
+            return;
+        }
+    }
+}
+
+void LvglLauncherApp::Impl::settingsToggleCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    lv_obj_t* t = lv_event_get_target_obj(event);
+    if (!app || !t)
+        return;
+
+    if (t == app->toggleRecursive)
+    {
+        app->config.recursiveScan = !app->config.recursiveScan;
+        app->saveConfig();
+        app->rescan();
+        app->refreshAll();
+    }
+    else if (t == app->togglePatches)
+    {
+        app->config.detectPatches = !app->config.detectPatches;
+        app->saveConfig();
+        app->refreshSettings();
+    }
+    else if (t == app->toggleAspect)
+    {
+        app->config.keepAspect = !app->config.keepAspect;
+        app->saveConfig();
+        app->refreshSettings();
+    }
+    else if (t == app->toggleInteger)
+    {
+        app->config.integerScale = !app->config.integerScale;
+        app->saveConfig();
+        app->refreshSettings();
+    }
+    else if (t == app->toggleVsync)
+    {
+        app->config.vsync = !app->config.vsync;
+        app->saveConfig();
+        app->refreshSettings();
+    }
+    else if (t == app->toggleCovers)
+    {
+        app->config.showCovers = !app->config.showCovers;
+        app->saveConfig();
+        app->refreshAll();
+    }
+    else if (t == app->toggleStickDpad)
+    {
+        app->config.stickToDpad = !app->config.stickToDpad;
+        app->saveConfig();
+        app->refreshSettings();
+    }
+}
+
+void LvglLauncherApp::Impl::settingsSegCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    lv_obj_t* t = lv_event_get_target_obj(event);
+    if (!app || !t)
+        return;
+
+    for (int i = 0; i < resolutionPresetCount(); ++i)
+    {
+        if (app->resPills[i] == t)
+        {
+            app->setResolution(i);
+            return;
+        }
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        if (app->filterPills[i] == t)
+        {
+            app->config.pixelFilter = i;
+            app->saveConfig();
+            app->refreshSettings();
+            return;
+        }
+    }
+    for (int i = 0; i < 3; ++i)
+    {
+        if (app->coverStylePills[i] == t)
+        {
+            app->config.coverStyle = i;
+            app->saveConfig();
+            app->refreshAll(); // affects card art
+            return;
+        }
+    }
+    for (int i = 0; i < 2; ++i)
+    {
+        if (app->playerPills[i] == t)
+        {
+            app->gpPlayer = i;
+            std::memset(app->gpPrevBtn, 0, sizeof(app->gpPrevBtn));
+            app->refreshSettings();
+            return;
+        }
+    }
+}
+
 void LvglLauncherApp::Impl::settingsRescanCb(lv_event_t* event)
 {
     Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
@@ -2930,20 +3730,70 @@ void LvglLauncherApp::Impl::settingsRescanCb(lv_event_t* event)
     app->refreshAll();
 }
 
-void LvglLauncherApp::Impl::settingsPillCb(lv_event_t* event)
+void LvglLauncherApp::Impl::settingsBrowseCb(lv_event_t* event)
 {
     Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
-    lv_obj_t* target = lv_event_get_target_obj(event);
-    if (!app || !target)
+    if (!app)
         return;
-    for (int i = 0; i < resolutionPresetCount(); ++i)
-    {
-        if (app->settingsPills[i] == target)
-        {
-            app->setResolution(i);
-            return;
-        }
-    }
+    app->status = "选择文件夹：请用 --library 指定，或手动编辑 launcher.conf";
+    app->refreshStatus();
+}
+
+void LvglLauncherApp::Impl::deadzoneSliderCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    if (!app)
+        return;
+    const int v = lv_slider_get_value(app->sliderDeadzone);
+    app->config.deadzone = v / 100.0f;
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%.2f", app->config.deadzone);
+    lv_label_set_text(app->deadzoneVal, buf);
+    app->saveConfig();
+}
+
+void LvglLauncherApp::Impl::turboSliderCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    if (!app)
+        return;
+    const int v = lv_slider_get_value(app->sliderTurbo);
+    app->config.turbo = v;
+    lv_label_set_text(app->turboVal, (std::to_string(v) + " / 帧").c_str());
+    app->saveConfig();
+}
+
+void LvglLauncherApp::Impl::gpVibCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    if (!app)
+        return;
+    if (app->surface && app->surface->padRumble(app->gpPlayer))
+        app->status = "已发送震动测试";
+    else
+        app->status = "当前手柄不支持震动或未连接";
+    app->refreshStatus();
+}
+
+void LvglLauncherApp::Impl::gpResetCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    if (!app)
+        return;
+    app->config.stickToDpad = true;
+    app->config.deadzone    = 0.15f;
+    app->config.turbo       = 12;
+    app->saveConfig();
+    app->refreshSettings();
+    app->status = "已恢复默认手柄设置";
+    app->refreshStatus();
+}
+
+void LvglLauncherApp::Impl::padPollCb(lv_timer_t* timer)
+{
+    Impl* app = static_cast<Impl*>(lv_timer_get_user_data(timer));
+    if (app)
+        app->pollGamepad();
 }
 
 void LvglLauncherApp::Impl::pointerReadCb(lv_indev_t* indev, lv_indev_data_t* data)

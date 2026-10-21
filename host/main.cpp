@@ -22,7 +22,7 @@
 
 namespace
 {
-const char* kVersion = "0.1.0";
+const char* kVersion = "0.2.0";
 
 // Timing model: one host iteration is 3 PPU dots + 1 CPU instruction
 // + 1 APU step, and a frame is ~29781 such iterations of 559 ns each.

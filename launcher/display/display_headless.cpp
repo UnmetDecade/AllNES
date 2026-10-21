@@ -140,8 +140,33 @@ int HeadlessDisplay::canvasHeight() const
     return m_height;
 }
 
-int HeadlessDisplay::renderScale() const
+float HeadlessDisplay::renderScale() const
 {
-    return 1;
+    return 1.0f;
+}
+
+int HeadlessDisplay::padCount() const
+{
+    return 0;
+}
+
+bool HeadlessDisplay::padButton(int, int) const
+{
+    return false;
+}
+
+int HeadlessDisplay::padAxis(int, int) const
+{
+    return 0;
+}
+
+std::string HeadlessDisplay::padName(int) const
+{
+    return std::string();
+}
+
+bool HeadlessDisplay::padRumble(int)
+{
+    return false;
 }
 } // namespace launcher::display

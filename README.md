@@ -10,8 +10,10 @@
 ## 界面预览
 
 <p align="center">
-  <img src="docs/images/launcher-home.png" width="49%" alt="启动器首页：选中游戏横幅、最近游玩与游戏库预览">
-  <img src="docs/images/launcher-details.png" width="49%" alt="游戏详情抽屉：封面、Mapper、文件大小与分辨率">
+  <img src="docs/images/launcher-home.png" width="80%" alt="启动器首页：选中游戏横幅、最近游玩与游戏库预览">
+</p>
+<p align="center">
+  <img src="docs/images/launcher-settings.png" width="80%" alt="设置页面：游戏库、显示、输入·手柄、快捷键、封面与关于">
 </p>
 <p align="center">
   <img src="docs/images/launcher-library.png" width="80%" alt="游戏库网格：封面、Mapper 与文件大小">
@@ -24,7 +26,9 @@
 - iNES 格式，mapper：NROM(0)、MMC1/SxROM(1)、UxROM(2)、CNROM(3)、
   MMC3(4)、AxROM(7)、ColorDreams(11)、GxROM(66)、MMC3 变种(245，
   勇者斗恶龙等中文改版卡带)
-- 键盘双人操作，支持第一个 SDL GameController 手柄（热插拔）
+- 键盘双人操作，支持最多两个手柄（热插拔，1P/2P 各一个）；第三方手柄
+  （GameSir、8BitDo X 输入模式等）不在 SDL 内置映射库里时，自动套用通用
+  Xbox 映射
 - 音频：APU 原生采样率约 894 kHz，由前端重采样到设备采样率
 - 保持宽高比的缩放：默认按窗口/屏幕的关键边铺满（全屏时高度铺满，左右留
   黑边），可选用 `--integer-scale` 强制整数倍；全屏、静音、帧率控制
@@ -147,20 +151,33 @@ roms/
 
 启动器按键：
 
-| 键 | 作用 |
-| --- | --- |
-| `Tab` | 切换首页 / 游戏库 / 设置 |
-| `↑`/`↓`、`W`/`S` | 按行移动选择（9 款） |
-| `←`/`→`、`A`/`D` | 逐个移动选择 |
-| `PgUp`/`PgDn`、`Home`/`End` | 翻页 / 跳到首尾 |
-| `/` | 聚焦搜索框（输入即过滤，`Backspace` 删除） |
-| `Enter` | 启动选中的游戏 |
-| `[` / `]` | 切换分辨率档位（立即保存） |
-| `F5` | 重新扫描游戏库 |
-| `F11` | 启动器全屏切换 |
-| `Esc` | 清除搜索 / 退出搜索 / 关闭详情抽屉 / 关闭启动器 |
-| `Ctrl+Q` | 退出整个程序 |
-| 鼠标 / 触摸 | 悬停预览；单击选中并弹出详情抽屉；双击启动；滚轮滚动 |
+| 键                                  | 作用                                                 |
+| ----------------------------------- | ---------------------------------------------------- |
+| `Tab`                             | 切换首页 / 游戏库 / 设置                             |
+| `↑`/`↓`、`W`/`S`          | 按行移动选择（9 款）                                 |
+| `←`/`→`、`A`/`D`          | 逐个移动选择                                         |
+| `PgUp`/`PgDn`、`Home`/`End` | 翻页 / 跳到首尾                                      |
+| `/`                               | 聚焦搜索框（输入即过滤，`Backspace` 删除）         |
+| `Enter`                           | 启动选中的游戏                                       |
+| `[` / `]`                       | 切换分辨率档位（立即保存）                           |
+| `F5`                              | 重新扫描游戏库                                       |
+| `F11`                             | 启动器全屏切换                                       |
+| `Esc`                             | 清除搜索 / 退出搜索 / 关闭详情抽屉 / 关闭启动器      |
+| `Ctrl+Q`                          | 退出整个程序                                         |
+| 鼠标 / 触摸                         | 悬停预览；单击选中并弹出详情抽屉；双击启动；滚轮滚动 |
+
+启动器也支持手柄导航（第一个手柄）：
+
+| 手柄按键                  | 作用                         |
+| ------------------------- | ---------------------------- |
+| 十字键 / 左摇杆           | 移动选择（长按自动连续滚动） |
+| A（Xbox）/ ×（PS）       | 启动选中的游戏               |
+| B（Xbox）/ ○（PS）       | 返回 / 关闭详情 / 退出启动器 |
+| X（Xbox）/ □（PS）       | 重新扫描游戏库               |
+| Y（Xbox）/ △（PS）       | 切换首页 / 游戏库 / 设置     |
+| Back（Xbox）/ Share（PS） | 启动器全屏切换               |
+| Start / Options           | 启动选中的游戏               |
+| LB / L1、RB / R1          | 切换分辨率档位               |
 
 分辨率档位（游戏窗口尺寸）：3x 768×720（默认）、4x 1024×960、
 5x 1280×1200、1920×1080、2560×1440、全屏。游戏画面仍在窗口内做整数倍
@@ -168,18 +185,18 @@ roms/
 
 常用参数：
 
-| 参数 | 说明 |
-| --- | --- |
-| `-s, --scale N` | 窗口缩放倍数，默认 3 |
-| `-w, --width N` / `-H, --height N` | 指定窗口尺寸 |
-| `-C, --conf FILE` | 指定按键配置文件 |
-| `-L, --library DIR` | 启动器的游戏库目录 |
-| `--display auto\|sdl\|headless` | 选择启动器的显示后端（默认 `auto`） |
-| `--fullscreen` | 全屏启动 |
-| `--integer-scale` | 整数倍缩放（每个 NES 像素等大，但可能留更宽的黑边） |
-| `--mute-audio` | 不打开音频设备 |
-| `--frames N` | 运行 N 帧后退出（用于冒烟测试） |
-| `--menu-frames N` | 绘制 N 帧启动器后退出（用于冒烟测试） |
+| 参数                                   | 说明                                                |
+| -------------------------------------- | --------------------------------------------------- |
+| `-s, --scale N`                      | 窗口缩放倍数，默认 3                                |
+| `-w, --width N` / `-H, --height N` | 指定窗口尺寸                                        |
+| `-C, --conf FILE`                    | 指定按键配置文件                                    |
+| `-L, --library DIR`                  | 启动器的游戏库目录                                  |
+| `--display auto\|sdl\|headless`        | 选择启动器的显示后端（默认 `auto`）               |
+| `--fullscreen`                       | 全屏启动                                            |
+| `--integer-scale`                    | 整数倍缩放（每个 NES 像素等大，但可能留更宽的黑边） |
+| `--mute-audio`                       | 不打开音频设备                                      |
+| `--frames N`                         | 运行 N 帧后退出（用于冒烟测试）                     |
+| `--menu-frames N`                    | 绘制 N 帧启动器后退出（用于冒烟测试）               |
 
 游戏内快捷键：`F11` 切换全屏，`Ctrl+R` 复位，`M` 静音切换，`Ctrl+Q`
 退出整个程序。从启动器进入游戏时，按 `Esc` 或点击游戏窗口的关闭按钮会先
@@ -189,13 +206,13 @@ roms/
 
 默认按键（可在 `keybindings.conf` 中修改）：
 
-| NES 按键 | 玩家 1 | 玩家 2 |
-| --- | --- | --- |
-| A | J | 小键盘 5 |
-| B | K | 小键盘 6 |
-| Select | 右 Shift | 小键盘 8 |
-| Start | Enter | 小键盘 9 |
-| 上 / 下 / 左 / 右 | W / S / A / D | 方向键 |
+| NES 按键          | 玩家 1        | 玩家 2   |
+| ----------------- | ------------- | -------- |
+| A                 | J             | 小键盘 5 |
+| B                 | K             | 小键盘 6 |
+| Select            | 右 Shift      | 小键盘 8 |
+| Start             | Enter         | 小键盘 9 |
+| 上 / 下 / 左 / 右 | W / S / A / D | 方向键   |
 
 ## 测试
 
@@ -236,12 +253,12 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
 
 启动器支持下面的调试用环境变量，便于无头截图和交互验证：
 
-| 变量 | 作用 |
-| --- | --- |
-| `ALLNES_LAUNCHER_SHOT=FILE` | 把启动器画面保存为 PNG |
-| `ALLNES_LAUNCHER_SHOT_FRAME=N` | 在第 N 帧截图（默认第 0 帧） |
-| `ALLNES_LAUNCHER_TAB=0/1/2` | 启动时直接打开首页 / 游戏库 / 设置 |
-| `ALLNES_LAUNCHER_DETAILS=1` | 启动时直接打开右侧详情抽屉（截图用） |
+| 变量                              | 作用                                                            |
+| --------------------------------- | --------------------------------------------------------------- |
+| `ALLNES_LAUNCHER_SHOT=FILE`     | 把启动器画面保存为 PNG                                          |
+| `ALLNES_LAUNCHER_SHOT_FRAME=N`  | 在第 N 帧截图（默认第 0 帧）                                    |
+| `ALLNES_LAUNCHER_TAB=0/1/2`     | 启动时直接打开首页 / 游戏库 / 设置                              |
+| `ALLNES_LAUNCHER_DETAILS=1`     | 启动时直接打开右侧详情抽屉（截图用）                            |
 | `ALLNES_LAUNCHER_INPUT_DEBUG=1` | 把鼠标/触摸的事件坐标、drawable 尺寸与最终画布坐标打印到 stderr |
 
 ```sh
@@ -257,6 +274,7 @@ AllNES/
 │   ├── include/port/     # IVideoSink / IAudioSink / IInputSource
 │   ├── include/          # CPU、PPU、APU、main bus、mapper……
 │   └── src/
+├── gamepad/              # SDL 手柄封装：枚举、热插拔、第三方手柄通用映射
 ├── launcher/             # 独立启动器层（不依赖 core）
 │   ├── model/            # ROM 扫描、iNES 头探测、配置持久化
 │   ├── display/          # 显示抽象层：Display 接口 + SDL2 / headless 后端

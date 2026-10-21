@@ -25,10 +25,11 @@ bool isNesPath(const std::string& path);
 // leave mapper at -1 and supported false.
 RomEntry probeRom(const std::string& path);
 
-// Lists .NES files in `dir` (non-recursive, dotfiles skipped), probes each
-// header and sorts case-insensitively by file name. On failure `error` is set
-// and the result is empty.
-std::vector<RomEntry> scanLibrary(const std::string& dir, std::string& error);
+// Lists .NES files in `dir`, probes each header and sorts case-insensitively
+// by file name. When `recursive` is set the scan descends into subdirectories.
+// On failure `error` is set and the result is empty.
+std::vector<RomEntry> scanLibrary(const std::string& dir, std::string& error,
+                                  bool recursive = false);
 
 // Expands a leading "~" using $HOME / %USERPROFILE%.
 std::string expandUserPath(const std::string& path);

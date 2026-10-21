@@ -4,12 +4,15 @@
 #include "keybindings.h"
 #include "port/IInputSource.h"
 
+#include "gamepad/gamepad.h"
+
 #include <SDL.h>
 
 namespace host
 {
-// Polls the keyboard and (optionally) the first attached game controller.
-// Player 1 can be driven by either; player 2 is keyboard-only.
+// Polls the keyboard and up to two game controllers. Each player is driven by
+// the keyboard or their own controller (slot 0 -> player 1, slot 1 -> player 2);
+// controller input is OR-ed onto the keyboard state.
 class SdlInput : public allnes::IInputSource
 {
 public:
@@ -23,16 +26,14 @@ public:
     // Call from the host event loop for hot-plug support.
     void handleEvent(const SDL_Event& event);
 
-    bool controllerConnected() const { return m_controller != nullptr; }
+    bool controllerConnected() const { return m_pads.count() > 0; }
 
 private:
-    void closeController();
-    void openController(int deviceIndex);
+    void applyPad(int player, int slot);
 
-    Keybindings            m_keys;
-    std::uint8_t           m_state[2] = {0, 0};
-    SDL_GameController*    m_controller  = nullptr;
-    bool                   m_initialized = false;
+    Keybindings              m_keys;
+    std::uint8_t             m_state[2] = {0, 0};
+    allnes::gamepad::Gamepads m_pads;
 };
 } // namespace host
 

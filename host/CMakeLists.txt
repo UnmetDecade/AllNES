@@ -9,7 +9,7 @@ add_executable(allnes
     sdl_input.cpp
     keybindings.cpp
 )
-target_link_libraries(allnes PRIVATE allnes_core allnes_launcher ${ALLNES_SDL2_LINK})
+target_link_libraries(allnes PRIVATE allnes_core allnes_launcher allnes_gamepad ${ALLNES_SDL2_LINK})
 
 if(TARGET SDL2::SDL2main AND WIN32)
     target_link_libraries(allnes PRIVATE SDL2::SDL2main)

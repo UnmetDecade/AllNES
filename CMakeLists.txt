@@ -139,8 +139,9 @@ if(ALLNES_SDL2_LINK AND ALLNES_WITH_LVGL)
 endif()
 
 if(ALLNES_SDL2_LINK)
-    # The launcher is its own layer; the host is the composition root that
-    # owns both the launcher and the emulator.
+    # Shared game-controller layer, then the launcher (its own layer) and the
+    # host (the composition root that owns both launcher and emulator).
+    add_subdirectory(gamepad)
     add_subdirectory(launcher)
     add_subdirectory(host)
 else()

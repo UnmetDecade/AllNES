@@ -10,7 +10,7 @@ add_library(allnes_display STATIC
     display/display_headless.cpp
 )
 target_include_directories(allnes_display PUBLIC "${CMAKE_SOURCE_DIR}")
-target_link_libraries(allnes_display PUBLIC ${ALLNES_SDL2_LINK})
+target_link_libraries(allnes_display PUBLIC allnes_gamepad ${ALLNES_SDL2_LINK})
 
 set(ALLNES_LAUNCHER_SOURCES
     model/library.cpp

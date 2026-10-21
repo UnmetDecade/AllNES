@@ -1,11 +1,12 @@
 #include "sdl_input.h"
 
-#include <cstdio>
-
 namespace host
 {
 namespace
 {
+// SDL's abstract controller buttons -> NES buttons, in the order the NES shift
+// register reports them (A, B, Select, Start, Up, Down, Left, Right). The same
+// table drives both players.
 const int GamepadButtonCount = 8;
 const SDL_GameControllerButton kGamepadMap[GamepadButtonCount] = {
     SDL_CONTROLLER_BUTTON_A,      // NES A
@@ -24,50 +25,19 @@ SdlInput::SdlInput(const Keybindings& keys)
 {
 }
 
-SdlInput::~SdlInput()
-{
-    closeController();
-    if (m_initialized)
-        SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);
-}
+SdlInput::~SdlInput() = default;
 
 bool SdlInput::init()
 {
-    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0)
-    {
-        std::fprintf(stderr, "SDL game controller init failed: %s\n", SDL_GetError());
-        return false;
-    }
-    m_initialized = true;
-
-    for (int i = 0; i < SDL_NumJoysticks(); ++i)
-    {
-        if (SDL_IsGameController(i))
-        {
-            openController(i);
-            break;
-        }
-    }
-
-    return true;
+    return m_pads.init();
 }
 
-void SdlInput::closeController()
+void SdlInput::applyPad(int player, int slot)
 {
-    if (m_controller)
+    for (int button = 0; button < GamepadButtonCount; ++button)
     {
-        SDL_GameControllerClose(m_controller);
-        m_controller = nullptr;
-    }
-}
-
-void SdlInput::openController(int deviceIndex)
-{
-    closeController();
-    m_controller = SDL_GameControllerOpen(deviceIndex);
-    if (m_controller)
-    {
-        std::fprintf(stderr, "Game controller: %s\n", SDL_GameControllerName(m_controller));
+        if (m_pads.button(slot, kGamepadMap[button]))
+            m_state[player] |= static_cast<std::uint8_t>(1u << button);
     }
 }
 
@@ -87,14 +57,9 @@ void SdlInput::poll()
         m_state[player] = state;
     }
 
-    if (m_controller)
-    {
-        for (int button = 0; button < GamepadButtonCount; ++button)
-        {
-            if (SDL_GameControllerGetButton(m_controller, kGamepadMap[button]))
-                m_state[0] |= static_cast<std::uint8_t>(1u << button);
-        }
-    }
+    // Slot 0 -> player 1, slot 1 -> player 2.
+    for (int slot = 0; slot < allnes::gamepad::Gamepads::kMaxControllers; ++slot)
+        applyPad(slot, slot);
 }
 
 std::uint8_t SdlInput::buttonState(int player) const
@@ -106,19 +71,6 @@ std::uint8_t SdlInput::buttonState(int player) const
 
 void SdlInput::handleEvent(const SDL_Event& event)
 {
-    switch (event.type)
-    {
-    case SDL_CONTROLLERDEVICEADDED:
-        if (!m_controller && SDL_IsGameController(event.cdevice.which))
-            openController(event.cdevice.which);
-        break;
-    case SDL_CONTROLLERDEVICEREMOVED:
-        if (m_controller &&
-            event.cdevice.which == SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(m_controller)))
-            closeController();
-        break;
-    default:
-        break;
-    }
+    m_pads.handleEvent(event);
 }
 } // namespace host

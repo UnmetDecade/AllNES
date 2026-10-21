@@ -104,7 +104,7 @@ RomEntry probeRom(const std::string& path)
     return entry;
 }
 
-std::vector<RomEntry> scanLibrary(const std::string& dir, std::string& error)
+std::vector<RomEntry> scanLibrary(const std::string& dir, std::string& error, bool recursive)
 {
     std::vector<RomEntry> roms;
     error.clear();
@@ -116,49 +116,73 @@ std::vector<RomEntry> scanLibrary(const std::string& dir, std::string& error)
         return roms;
     }
 
-    fs::directory_iterator it(dir, ec);
-    if (ec)
-    {
-        error = "Cannot read " + dir + ": " + ec.message();
-        return roms;
-    }
-
     // Box art is kept in a sibling "images" folder, named after the ROM stem.
     const fs::path imageDir = fs::path(dir) / "images";
     const char* const kCoverExtensions[] = { ".png", ".jpg", ".jpeg" };
 
-    const fs::directory_iterator end;
-    while (it != end)
-    {
-        const fs::directory_entry& file = *it;
+    auto addFile = [&](const fs::directory_entry& file) {
         const std::string name = file.path().filename().string();
+        if (name.empty() || name[0] == '.')
+            return;
 
-        if (!name.empty() && name[0] != '.')
+        std::error_code entryEc;
+        if (!file.is_regular_file(entryEc) || !isNesPath(name))
+            return;
+
+        RomEntry entry = probeRom(file.path().string());
+        for (const char* extension : kCoverExtensions)
         {
-            std::error_code entryEc;
-            if (file.is_regular_file(entryEc) && isNesPath(name))
+            std::error_code coverEc;
+            const fs::path candidate = imageDir / (entry.title + extension);
+            if (fs::is_regular_file(candidate, coverEc))
             {
-                RomEntry entry = probeRom(file.path().string());
-                for (const char* extension : kCoverExtensions)
-                {
-                    std::error_code coverEc;
-                    const fs::path candidate = imageDir / (entry.title + extension);
-                    if (fs::is_regular_file(candidate, coverEc))
-                    {
-                        entry.coverPath = candidate.string();
-                        break;
-                    }
-                }
-                roms.push_back(std::move(entry));
+                entry.coverPath = candidate.string();
+                break;
             }
         }
+        roms.push_back(std::move(entry));
+    };
 
-        it.increment(ec);
+    if (recursive)
+    {
+        fs::recursive_directory_iterator it(dir, ec);
         if (ec)
         {
-            ec.clear(); // skip an unreadable entry and keep scanning
-            if (it == end)
-                break;
+            error = "Cannot read " + dir + ": " + ec.message();
+            return roms;
+        }
+        const fs::recursive_directory_iterator end;
+        while (it != end)
+        {
+            addFile(*it);
+            it.increment(ec);
+            if (ec)
+            {
+                ec.clear(); // skip an unreadable entry and keep scanning
+                if (it == end)
+                    break;
+            }
+        }
+    }
+    else
+    {
+        fs::directory_iterator it(dir, ec);
+        if (ec)
+        {
+            error = "Cannot read " + dir + ": " + ec.message();
+            return roms;
+        }
+        const fs::directory_iterator end;
+        while (it != end)
+        {
+            addFile(*it);
+            it.increment(ec);
+            if (ec)
+            {
+                ec.clear(); // skip an unreadable entry and keep scanning
+                if (it == end)
+                    break;
+            }
         }
     }
 

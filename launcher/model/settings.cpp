@@ -34,6 +34,16 @@ std::string trim(const std::string& text)
         --end;
     return text.substr(begin, end - begin);
 }
+
+bool parseBool(const std::string& text)
+{
+    return text == "1" || text == "true" || text == "on" || text == "yes";
+}
+
+int clampInt(int value, int lo, int hi)
+{
+    return std::max(lo, std::min(hi, value));
+}
 } // namespace
 
 const ResolutionPreset* resolutionPresets()
@@ -78,6 +88,34 @@ LauncherConfig loadLauncherConfig(const std::string& path)
             if (duplicate == config.recent.end())
                 config.recent.push_back(value);
         }
+        else if (key == "favorite" && !value.empty())
+        {
+            const auto duplicate = std::find(config.favorites.begin(), config.favorites.end(), value);
+            if (duplicate == config.favorites.end())
+                config.favorites.push_back(value);
+        }
+        else if (key == "recursive")
+            config.recursiveScan = parseBool(value);
+        else if (key == "patches")
+            config.detectPatches = parseBool(value);
+        else if (key == "pixelfilter")
+            config.pixelFilter = std::atoi(value.c_str());
+        else if (key == "aspect")
+            config.keepAspect = parseBool(value);
+        else if (key == "integerscale")
+            config.integerScale = parseBool(value);
+        else if (key == "vsync")
+            config.vsync = parseBool(value);
+        else if (key == "covers")
+            config.showCovers = parseBool(value);
+        else if (key == "coverstyle")
+            config.coverStyle = std::atoi(value.c_str());
+        else if (key == "stickdpad")
+            config.stickToDpad = parseBool(value);
+        else if (key == "deadzone")
+            config.deadzone = std::strtof(value.c_str(), nullptr);
+        else if (key == "turbo")
+            config.turbo = std::atoi(value.c_str());
     }
 
     if (config.recent.size() > 12)
@@ -87,6 +125,11 @@ LauncherConfig loadLauncherConfig(const std::string& path)
         config.resolutionIndex = 0;
     if (config.resolutionIndex >= kPresetCount)
         config.resolutionIndex = kPresetCount - 1;
+
+    config.pixelFilter = clampInt(config.pixelFilter, 0, 3);
+    config.coverStyle  = clampInt(config.coverStyle, 0, 2);
+    config.deadzone    = std::max(0.0f, std::min(0.5f, config.deadzone));
+    config.turbo       = clampInt(config.turbo, 1, 30);
     return config;
 }
 
@@ -104,8 +147,21 @@ bool saveLauncherConfig(const std::string& path, const LauncherConfig& config)
     file << "# AllNES launcher settings\n";
     file << "library=" << config.libraryPath << '\n';
     file << "resolution=" << config.resolutionIndex << '\n';
+    file << "recursive=" << (config.recursiveScan ? "1" : "0") << '\n';
+    file << "patches=" << (config.detectPatches ? "1" : "0") << '\n';
+    file << "pixelfilter=" << config.pixelFilter << '\n';
+    file << "aspect=" << (config.keepAspect ? "1" : "0") << '\n';
+    file << "integerscale=" << (config.integerScale ? "1" : "0") << '\n';
+    file << "vsync=" << (config.vsync ? "1" : "0") << '\n';
+    file << "covers=" << (config.showCovers ? "1" : "0") << '\n';
+    file << "coverstyle=" << config.coverStyle << '\n';
+    file << "stickdpad=" << (config.stickToDpad ? "1" : "0") << '\n';
+    file << "deadzone=" << config.deadzone << '\n';
+    file << "turbo=" << config.turbo << '\n';
     for (const std::string& entry : config.recent)
         file << "recent=" << entry << '\n';
+    for (const std::string& entry : config.favorites)
+        file << "favorite=" << entry << '\n';
     return static_cast<bool>(file);
 }
 } // namespace launcher

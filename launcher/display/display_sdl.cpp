@@ -47,12 +47,73 @@ Key keyFromScancode(SDL_Scancode scancode)
     case SDL_SCANCODE_D:            return Key::D;
     case SDL_SCANCODE_S:            return Key::S;
     case SDL_SCANCODE_W:            return Key::W;
+    case SDL_SCANCODE_F:            return Key::F;
     case SDL_SCANCODE_SLASH:        return Key::Slash;
     case SDL_SCANCODE_LEFTBRACKET:  return Key::LeftBracket;
     case SDL_SCANCODE_RIGHTBRACKET: return Key::RightBracket;
     default:                        return Key::Unknown;
     }
 }
+
+// Controller buttons are mapped onto the launcher's portable key set, so the
+// UI needs no controller-specific handling.
+Key keyFromPadButton(SDL_GameControllerButton button)
+{
+    switch (button)
+    {
+    case SDL_CONTROLLER_BUTTON_A:             return Key::Enter;
+    case SDL_CONTROLLER_BUTTON_B:             return Key::Escape;
+    case SDL_CONTROLLER_BUTTON_X:             return Key::F5;
+    case SDL_CONTROLLER_BUTTON_Y:             return Key::Tab;
+    case SDL_CONTROLLER_BUTTON_BACK:          return Key::F11;
+    case SDL_CONTROLLER_BUTTON_START:         return Key::Enter;
+    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return Key::LeftBracket;
+    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return Key::RightBracket;
+    default:                                  return Key::Unknown;
+    }
+}
+
+Event padKeyDown(Key key, bool repeat)
+{
+    Event event;
+    event.type   = EventType::KeyDown;
+    event.key    = key;
+    event.repeat = repeat;
+    return event;
+}
+
+// Left stick dead zone and held-direction auto-repeat timing (ms).
+constexpr Sint16       kPadDeadZone    = 8000;
+constexpr std::uint32_t kPadRepeatDelay = 420;
+constexpr std::uint32_t kPadRepeatRate  = 140;
+
+// Portable PadButton/PadAxis indices -> SDL abstract controller symbols.
+const SDL_GameControllerButton kSdlButtons[PadButtonCount] = {
+    SDL_CONTROLLER_BUTTON_A,            // PadA
+    SDL_CONTROLLER_BUTTON_B,            // PadB
+    SDL_CONTROLLER_BUTTON_X,            // PadX
+    SDL_CONTROLLER_BUTTON_Y,            // PadY
+    SDL_CONTROLLER_BUTTON_LEFTSHOULDER, // PadLeftShoulder
+    SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,// PadRightShoulder
+    SDL_CONTROLLER_BUTTON_BACK,         // PadBack
+    SDL_CONTROLLER_BUTTON_START,        // PadStart
+    SDL_CONTROLLER_BUTTON_LEFTSTICK,    // PadLeftStick
+    SDL_CONTROLLER_BUTTON_RIGHTSTICK,   // PadRightStick
+    SDL_CONTROLLER_BUTTON_GUIDE,        // PadGuide
+    SDL_CONTROLLER_BUTTON_DPAD_UP,      // PadDpadUp
+    SDL_CONTROLLER_BUTTON_DPAD_DOWN,    // PadDpadDown
+    SDL_CONTROLLER_BUTTON_DPAD_LEFT,    // PadDpadLeft
+    SDL_CONTROLLER_BUTTON_DPAD_RIGHT,   // PadDpadRight
+};
+
+const SDL_GameControllerAxis kSdlAxes[PadAxisCount] = {
+    SDL_CONTROLLER_AXIS_LEFTX,        // PadLeftX
+    SDL_CONTROLLER_AXIS_LEFTY,        // PadLeftY
+    SDL_CONTROLLER_AXIS_RIGHTX,       // PadRightX
+    SDL_CONTROLLER_AXIS_RIGHTY,       // PadRightY
+    SDL_CONTROLLER_AXIS_TRIGGERLEFT,  // PadTriggerLeft
+    SDL_CONTROLLER_AXIS_TRIGGERRIGHT, // PadTriggerRight
+};
 } // namespace
 
 SdlDisplay::~SdlDisplay()
@@ -91,9 +152,28 @@ bool SdlDisplay::init(const Config& config, std::string& error)
     if (config.highDpi)
         windowFlags |= SDL_WINDOW_ALLOW_HIGHDPI;
 
+    int windowW = config.windowWidth;
+    int windowH = config.windowHeight;
+    // Keep the default window at 16:9 and shrink it to fit the display's
+    // usable area. If the OS clamps the window to a non-16:9 size, the 16:9
+    // canvas is letterboxed and dark bars appear down the sides.
+    SDL_Rect usable;
+    if (SDL_GetDisplayUsableBounds(0, &usable) == 0 && usable.w > 0 && usable.h > 0)
+    {
+        const int availW = usable.w - 48;
+        const int availH = usable.h - 48;
+        if (availW < windowW || availH < windowH)
+        {
+            const double s = std::min(static_cast<double>(availW) / windowW,
+                                      static_cast<double>(availH) / windowH);
+            windowW = std::max(config.minWidth,  static_cast<int>(windowW * s));
+            windowH = std::max(config.minHeight, static_cast<int>(windowH * s));
+        }
+    }
+
     m_window = SDL_CreateWindow(config.title.c_str(),
                                 SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                                config.windowWidth, config.windowHeight,
+                                windowW, windowH,
                                 windowFlags);
     if (!m_window)
     {
@@ -116,10 +196,10 @@ bool SdlDisplay::init(const Config& config, std::string& error)
         return false;
     }
 
-    // Pick a canvas at (up to) 2x the design size when the window's drawable
-    // area is larger than the design canvas. Rendering at 2x and letting SDL
-    // downsample keeps text and artwork sharp on HiDPI screens; the old 1x
-    // canvas was upscaled 1.67x and looked blurry.
+    // Size the canvas to the window's actual drawable area so SDL never has to
+    // resample the UI: the texture maps 1:1 onto the screen and the renderer
+    // letterboxes any leftover area. `renderScale` becomes fractional (e.g.
+    // 0.833 on a 1600x900 window) and drives the UI's layout/font scaling.
     int drawableW = config.windowWidth;
     int drawableH = config.windowHeight;
     if (SDL_GetRendererOutputSize(m_renderer, &drawableW, &drawableH) != 0 ||
@@ -131,10 +211,20 @@ bool SdlDisplay::init(const Config& config, std::string& error)
 
     const int designW = config.logicalWidth  > 0 ? config.logicalWidth  : 1920;
     const int designH = config.logicalHeight > 0 ? config.logicalHeight : 1080;
-    const int needed  = (drawableW + designW - 1) / designW;
-    m_renderScale  = std::clamp(needed, 1, 2);
-    m_canvasWidth  = designW * m_renderScale;
-    m_canvasHeight = designH * m_renderScale;
+
+    // A uniform scale keeps the design's 16:9 aspect ratio; the renderer's
+    // logical-size letterboxing centers the result and fills the rest.
+    double fitScale = std::min(static_cast<double>(drawableW) / designW,
+                               static_cast<double>(drawableH) / designH);
+    if (fitScale <= 0.0)
+        fitScale = 1.0;
+    // Render at 2x on windows smaller than the design canvas so text is
+    // rasterized large and SDL downscales 2:1 (supersampled, sharp). At or
+    // above design size the canvas maps 1:1 onto the drawable.
+    const double scale = fitScale >= 1.0 ? fitScale : 2.0 * fitScale;
+    m_renderScale  = static_cast<float>(scale);
+    m_canvasWidth  = std::max(1, static_cast<int>(std::lround(designW * scale)));
+    m_canvasHeight = std::max(1, static_cast<int>(std::lround(designH * scale)));
 
     m_texture = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ARGB8888,
                                   SDL_TEXTUREACCESS_STREAMING,
@@ -158,6 +248,10 @@ bool SdlDisplay::init(const Config& config, std::string& error)
 
     SDL_SetWindowMinimumSize(m_window, config.minWidth, config.minHeight);
     m_start = std::chrono::steady_clock::now();
+
+    // Controllers are optional: the launcher stays fully usable with the
+    // keyboard/mouse when none is attached. init() logs its own failure.
+    m_pads.init();
     return true;
 }
 
@@ -183,9 +277,11 @@ void SdlDisplay::shutdown()
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
         m_videoReady = false;
     }
+    m_pads.shutdown();
+    resetPadState();
     m_canvasWidth  = 0;
     m_canvasHeight = 0;
-    m_renderScale  = 1;
+    m_renderScale  = 1.0f;
     m_fullscreen   = false;
 }
 
@@ -294,13 +390,115 @@ bool SdlDisplay::readPixels(std::vector<std::uint32_t>& out,
 
 bool SdlDisplay::pollEvent(Event& out)
 {
+    // Emit queued controller navigation events first, then any freshly
+    // detected edges/repeats, before draining the SDL event queue.
+    if (!m_padQueue.empty())
+    {
+        out = m_padQueue.front();
+        m_padQueue.pop_front();
+        return true;
+    }
+    if (m_pads.count() > 0)
+        controllerTick();
+    if (!m_padQueue.empty())
+    {
+        out = m_padQueue.front();
+        m_padQueue.pop_front();
+        return true;
+    }
+
     SDL_Event event;
     while (SDL_PollEvent(&event))
     {
+        if (event.type == SDL_JOYDEVICEADDED || event.type == SDL_CONTROLLERDEVICEADDED ||
+            event.type == SDL_JOYDEVICEREMOVED || event.type == SDL_CONTROLLERDEVICEREMOVED)
+        {
+            m_pads.handleEvent(event);
+            continue; // device events are not launcher events
+        }
         if (translate(event, out))
             return true;
     }
     return false;
+}
+
+void SdlDisplay::controllerTick()
+{
+    constexpr int kSlot = 0; // the first pad drives launcher navigation
+    const std::uint32_t now = ticks();
+
+    // One-shot buttons fire on the press edge only, so holding A does not spam
+    // Enter. Their targets already ignore repeats, but the edge keeps it clean.
+    static const SDL_GameControllerButton kOneShot[] = {
+        SDL_CONTROLLER_BUTTON_A,
+        SDL_CONTROLLER_BUTTON_B,
+        SDL_CONTROLLER_BUTTON_X,
+        SDL_CONTROLLER_BUTTON_Y,
+        SDL_CONTROLLER_BUTTON_BACK,
+        SDL_CONTROLLER_BUTTON_START,
+        SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+        SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+    };
+    for (SDL_GameControllerButton button : kOneShot)
+    {
+        const bool down = m_pads.button(kSlot, button);
+        if (down && !m_padBtnPrev[button])
+        {
+            const Key key = keyFromPadButton(button);
+            if (key != Key::Unknown)
+                m_padQueue.push_back(padKeyDown(key, false));
+        }
+        m_padBtnPrev[button] = down ? 1 : 0;
+    }
+
+    // Directions: D-pad or left stick. A press edge fires once; holding
+    // auto-repeats so the selection keeps scrolling.
+    const bool dir[4] = {
+        m_pads.button(kSlot, SDL_CONTROLLER_BUTTON_DPAD_UP)    || stickDir(kSlot, 0),
+        m_pads.button(kSlot, SDL_CONTROLLER_BUTTON_DPAD_DOWN)  || stickDir(kSlot, 1),
+        m_pads.button(kSlot, SDL_CONTROLLER_BUTTON_DPAD_LEFT)  || stickDir(kSlot, 2),
+        m_pads.button(kSlot, SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || stickDir(kSlot, 3),
+    };
+    static const Key kDirKeys[4] = { Key::Up, Key::Down, Key::Left, Key::Right };
+    for (int d = 0; d < 4; ++d)
+    {
+        if (dir[d] && !m_dirPrev[d])
+        {
+            m_padQueue.push_back(padKeyDown(kDirKeys[d], false));
+            m_dirDownAt[d]     = now;
+            m_dirLastRepeat[d] = now;
+        }
+        else if (dir[d] && m_dirPrev[d] &&
+                 now - m_dirDownAt[d] >= kPadRepeatDelay &&
+                 now - m_dirLastRepeat[d] >= kPadRepeatRate)
+        {
+            m_padQueue.push_back(padKeyDown(kDirKeys[d], true));
+            m_dirLastRepeat[d] = now;
+        }
+        m_dirPrev[d] = dir[d];
+    }
+}
+
+bool SdlDisplay::stickDir(int slot, int dirIndex) const
+{
+    const Sint16 x = m_pads.axis(slot, SDL_CONTROLLER_AXIS_LEFTX);
+    const Sint16 y = m_pads.axis(slot, SDL_CONTROLLER_AXIS_LEFTY);
+    switch (dirIndex)
+    {
+    case 0: return y < -kPadDeadZone;  // up is negative Y
+    case 1: return y >  kPadDeadZone;
+    case 2: return x < -kPadDeadZone;
+    default: return x >  kPadDeadZone; // right
+    }
+}
+
+void SdlDisplay::resetPadState()
+{
+    m_padQueue.clear();
+    std::memset(m_padBtnPrev, 0, sizeof(m_padBtnPrev));
+    std::memset(m_dirPrev, 0, sizeof(m_dirPrev));
+    std::memset(m_dirDownAt, 0, sizeof(m_dirDownAt));
+    std::memset(m_dirLastRepeat, 0, sizeof(m_dirLastRepeat));
 }
 
 bool SdlDisplay::translate(const SDL_Event& event, Event& out) const
@@ -515,6 +713,9 @@ void SdlDisplay::show()
 {
     if (!m_window)
         return;
+    // A button release that happens while the window is hidden is never seen;
+    // forget held state so a still-pressed button needs a fresh press.
+    resetPadState();
     SDL_ShowWindow(m_window);
     SDL_RaiseWindow(m_window);
 }
@@ -523,6 +724,7 @@ void SdlDisplay::hide()
 {
     if (m_window)
         SDL_HideWindow(m_window);
+    resetPadState();
 }
 
 void SdlDisplay::setFullscreen(bool enabled)
@@ -560,8 +762,37 @@ int SdlDisplay::canvasHeight() const
     return m_canvasHeight;
 }
 
-int SdlDisplay::renderScale() const
+float SdlDisplay::renderScale() const
 {
     return m_renderScale;
+}
+
+int SdlDisplay::padCount() const
+{
+    return m_pads.count();
+}
+
+bool SdlDisplay::padButton(int slot, int buttonIndex) const
+{
+    if (buttonIndex < 0 || buttonIndex >= PadButtonCount)
+        return false;
+    return m_pads.button(slot, kSdlButtons[buttonIndex]);
+}
+
+int SdlDisplay::padAxis(int slot, int axisIndex) const
+{
+    if (axisIndex < 0 || axisIndex >= PadAxisCount)
+        return 0;
+    return m_pads.axis(slot, kSdlAxes[axisIndex]);
+}
+
+std::string SdlDisplay::padName(int slot) const
+{
+    return m_pads.name(slot);
+}
+
+bool SdlDisplay::padRumble(int slot)
+{
+    return m_pads.rumble(slot, 0x8000, 0x8000, 300);
 }
 } // namespace launcher::display

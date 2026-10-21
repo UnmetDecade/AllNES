@@ -72,6 +72,7 @@ enum class Key
     D,
     S,
     W,
+    F,
     Slash,
     LeftBracket,
     RightBracket,
@@ -127,10 +128,42 @@ public:
     virtual void          delay(std::uint32_t ms) = 0;
 
     // Backing canvas = design size * renderScale. The UI creates its display
-    // at this size and scales layout metrics and fonts by renderScale.
-    virtual int canvasWidth() const  = 0;
-    virtual int canvasHeight() const = 0;
-    virtual int renderScale() const  = 0;
+    // at this size and scales layout metrics and fonts by renderScale. The
+    // scale is fractional (e.g. 0.833 on a 1600x900 window) so the canvas can
+    // match the window's drawable pixels 1:1 and avoid blurry resampling.
+    virtual int   canvasWidth() const  = 0;
+    virtual int   canvasHeight() const = 0;
+    virtual float renderScale() const  = 0;
+
+    // Raw gamepad state for the settings "input" panel. Indices are portable
+    // (below); the SDL backend maps them to SDL_GameControllerButton/Axis so
+    // the UI stays SDL-free. Every accessor is safe for an empty slot.
+    virtual int         padCount() const = 0;
+    virtual bool        padButton(int slot, int buttonIndex) const = 0;
+    virtual int         padAxis(int slot, int axisIndex) const = 0;
+    virtual std::string padName(int slot) const = 0;
+    virtual bool        padRumble(int slot) = 0;
+};
+
+// Portable gamepad button indices (padButton). Matches SDL's abstract
+// controller layout: A/B/X/Y, shoulders, back/start, sticks, guide, D-pad.
+enum PadButton
+{
+    PadA = 0, PadB, PadX, PadY,
+    PadLeftShoulder, PadRightShoulder,
+    PadBack, PadStart,
+    PadLeftStick, PadRightStick,
+    PadGuide,
+    PadDpadUp, PadDpadDown, PadDpadLeft, PadDpadRight,
+    PadButtonCount,
+};
+
+// Portable gamepad axis indices (padAxis).
+enum PadAxis
+{
+    PadLeftX = 0, PadLeftY, PadRightX, PadRightY,
+    PadTriggerLeft, PadTriggerRight,
+    PadAxisCount,
 };
 
 std::unique_ptr<Display> createDisplay(Backend backend, std::string& error);
