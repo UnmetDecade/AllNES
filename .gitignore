@@ -1,0 +1,13 @@
+build*/
+cmake-build-*/
+.cache/
+tmp/
+roms/
+.DS_Store
+*.o
+*.a
+*.so
+*.dylib
+*.nes
+*.ppm
+roms.zip
