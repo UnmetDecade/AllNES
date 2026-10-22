@@ -71,6 +71,7 @@ Key keyFromPadButton(SDL_GameControllerButton button)
     case SDL_CONTROLLER_BUTTON_START:         return Key::Enter;
     case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return Key::LeftBracket;
     case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return Key::RightBracket;
+    case SDL_CONTROLLER_BUTTON_GUIDE:         return Key::Escape;
     default:                                  return Key::Unknown;
     }
 }
@@ -440,6 +441,7 @@ void SdlDisplay::controllerTick()
         SDL_CONTROLLER_BUTTON_START,
         SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
         SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+        SDL_CONTROLLER_BUTTON_GUIDE,
     };
     for (SDL_GameControllerButton button : kOneShot)
     {
@@ -673,6 +675,14 @@ bool SdlDisplay::translate(const SDL_Event& event, Event& out) const
                                                   : static_cast<float>(event.wheel.x);
         out.wheelY = event.wheel.preciseY != 0.0f ? event.wheel.preciseY
                                                   : static_cast<float>(event.wheel.y);
+        // Natural scrolling (the macOS default) flips the reported deltas;
+        // normalize back to SDL's canonical "up is positive" convention so the
+        // launcher scrolls the same direction on every platform.
+        if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED)
+        {
+            out.wheelX = -out.wheelX;
+            out.wheelY = -out.wheelY;
+        }
 #else
         out.wheelX = static_cast<float>(event.wheel.x);
         out.wheelY = static_cast<float>(event.wheel.y);

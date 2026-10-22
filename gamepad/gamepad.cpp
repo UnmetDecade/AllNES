@@ -125,13 +125,45 @@ Gamepads::~Gamepads()
 
 bool Gamepads::init()
 {
+    // Set before the game controller subsystem starts so the hints apply to the
+    // initial enumeration. The DualShock 3's USB link on macOS is fragile and
+    // drops as soon as SDL stops reading its reports, so keep events flowing
+    // when the window is unfocused and pin the PS3 HIDAPI driver on.
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS3, "1");
+
+    // SDL's game controller init can block indefinitely on macOS while a flaky
+    // device (a DualShock 3 that keeps re-enumerating, for example) is plugged
+    // in, so it runs on a detached background thread. The window and the rest
+    // of the app must never wait on a pad.
+    m_stop       = false;
+    m_workerDone = false;
+    try
+    {
+        std::thread(&Gamepads::initWorker, this).detach();
+    }
+    catch (const std::exception&)
+    {
+        std::fprintf(stderr, "gamepad: could not start the init thread\n");
+        return false;
+    }
+    return true;
+}
+
+void Gamepads::initWorker()
+{
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0)
     {
         std::fprintf(stderr, "gamepad: SDL game controller init failed: %s\n",
                      SDL_GetError());
-        return false;
+        m_workerDone = true;
+        return;
     }
-    m_initialized = true;
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_initialized = true;
+    }
 
     // SDL frees the mapping list when the gamecontroller subsystem shuts down,
     // so this must run on every init rather than once per process.
@@ -139,15 +171,24 @@ bool Gamepads::init()
 
     for (int i = 0; i < SDL_NumJoysticks(); ++i)
     {
-        if (count() >= kMaxControllers)
+        if (m_stop.load(std::memory_order_relaxed))
             break;
         open(i);
     }
-    return true;
+    m_workerDone = true;
 }
 
 void Gamepads::shutdown()
 {
+    m_stop = true;
+
+    // If the init worker never finished (it may still be stuck inside
+    // SDL_InitSubSystem), leave the subsystem alone rather than race it; the
+    // OS reclaims the thread and the subsystem at process exit.
+    if (!m_workerDone.load(std::memory_order_acquire))
+        return;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
     for (int slot = 0; slot < kMaxControllers; ++slot)
         closeSlot(slot);
 
@@ -156,14 +197,6 @@ void Gamepads::shutdown()
         SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);
         m_initialized = false;
     }
-}
-
-int Gamepads::findEmptySlot() const
-{
-    for (int slot = 0; slot < kMaxControllers; ++slot)
-        if (!m_controllers[slot])
-            return slot;
-    return -1;
 }
 
 bool Gamepads::prepareDevice(int deviceIndex)
@@ -238,10 +271,8 @@ bool Gamepads::prepareDevice(int deviceIndex)
 
 void Gamepads::open(int deviceIndex)
 {
-    const int slot = findEmptySlot();
-    if (slot < 0)
-        return;
-
+    // Every blocking SDL call happens before the lock is taken, so the main
+    // thread never waits here on a pad that refuses to open.
     if (!prepareDevice(deviceIndex))
         return;
 
@@ -251,25 +282,45 @@ void Gamepads::open(int deviceIndex)
 
     const SDL_JoystickID id =
         SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller));
+    const char* cname = SDL_GameControllerName(controller);
+    char* rawMapping = SDL_GameControllerMapping(controller);
+    const std::string mappingStr = rawMapping ? std::string(rawMapping)
+                                              : std::string();
+    if (rawMapping)
+        SDL_free(rawMapping);
 
-    // Never open the same physical device twice (an ADD event can arrive both
-    // as SDL_JOYDEVICEADDED and SDL_CONTROLLERDEVICEADDED).
-    for (int i = 0; i < kMaxControllers; ++i)
+    int slot = -1;
     {
-        if (m_controllers[i] && m_instanceIds[i] == id)
+        std::lock_guard<std::mutex> lock(m_mutex);
+
+        // Never open the same physical device twice (an ADD event can arrive
+        // both as SDL_JOYDEVICEADDED and SDL_CONTROLLERDEVICEADDED), and pick
+        // the first free slot in the same pass.
+        for (int i = 0; i < kMaxControllers; ++i)
+        {
+            if (m_controllers[i] && m_instanceIds[i] == id)
+            {
+                SDL_GameControllerClose(controller);
+                return;
+            }
+            if (slot < 0 && !m_controllers[i])
+                slot = i;
+        }
+        if (slot < 0)
         {
             SDL_GameControllerClose(controller);
             return;
         }
+
+        m_controllers[slot] = controller;
+        m_instanceIds[slot] = id;
     }
 
-    m_controllers[slot] = controller;
-    m_instanceIds[slot] = id;
-    std::fprintf(stderr, "gamepad: player %d = %s\n",
-                 slot + 1, SDL_GameControllerName(controller));
-    debugf("player %d mapping: %s\n", slot + 1, mapping(slot).c_str());
+    std::fprintf(stderr, "gamepad: player %d = %s\n", slot + 1, cname);
+    debugf("player %d mapping: %s\n", slot + 1, mappingStr.c_str());
 }
 
+// Requires m_mutex to be held by the caller.
 void Gamepads::closeSlot(int slot)
 {
     if (m_controllers[slot])
@@ -284,6 +335,7 @@ void Gamepads::closeSlot(int slot)
 
 int Gamepads::count() const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     int n = 0;
     for (int slot = 0; slot < kMaxControllers; ++slot)
         if (m_controllers[slot])
@@ -297,6 +349,7 @@ void Gamepads::handleEvent(const SDL_Event& event)
     {
     case SDL_JOYDEVICEADDED:
     case SDL_CONTROLLERDEVICEADDED:
+        // count() and open() each lock; the count check is just an early-out.
         if (count() < kMaxControllers)
             open(event.type == SDL_JOYDEVICEADDED ? event.jdevice.which
                                                   : event.cdevice.which);
@@ -307,6 +360,7 @@ void Gamepads::handleEvent(const SDL_Event& event)
         const SDL_JoystickID id = event.type == SDL_CONTROLLERDEVICEREMOVED
                                     ? event.cdevice.which
                                     : event.jdevice.which;
+        std::lock_guard<std::mutex> lock(m_mutex);
         for (int slot = 0; slot < kMaxControllers; ++slot)
         {
             if (m_controllers[slot] && m_instanceIds[slot] == id)
@@ -322,6 +376,7 @@ void Gamepads::handleEvent(const SDL_Event& event)
     }
 }
 
+// Requires m_mutex to be held by the caller (button()).
 bool Gamepads::rawHat(int slot, Uint8 mask) const
 {
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
@@ -342,6 +397,7 @@ bool Gamepads::rawHat(int slot, Uint8 mask) const
 
 bool Gamepads::button(int slot, SDL_GameControllerButton b) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return false;
 
@@ -386,6 +442,7 @@ bool Gamepads::dpad(int slot, int direction) const
 
 Sint16 Gamepads::axis(int slot, SDL_GameControllerAxis a) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return 0;
     return SDL_GameControllerGetAxis(m_controllers[slot], a);
@@ -393,6 +450,7 @@ Sint16 Gamepads::axis(int slot, SDL_GameControllerAxis a) const
 
 std::string Gamepads::name(int slot) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return std::string();
     const char* n = SDL_GameControllerName(m_controllers[slot]);
@@ -401,6 +459,7 @@ std::string Gamepads::name(int slot) const
 
 std::string Gamepads::guid(int slot) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return std::string();
 
@@ -415,6 +474,7 @@ std::string Gamepads::guid(int slot) const
 
 std::string Gamepads::mapping(int slot) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return std::string();
 
@@ -429,6 +489,7 @@ std::string Gamepads::mapping(int slot) const
 
 int Gamepads::buttonCount(int slot) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return 0;
     SDL_Joystick* joy = SDL_GameControllerGetJoystick(m_controllers[slot]);
@@ -437,6 +498,7 @@ int Gamepads::buttonCount(int slot) const
 
 int Gamepads::axisCount(int slot) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return 0;
     SDL_Joystick* joy = SDL_GameControllerGetJoystick(m_controllers[slot]);
@@ -445,6 +507,7 @@ int Gamepads::axisCount(int slot) const
 
 int Gamepads::hatCount(int slot) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return 0;
     SDL_Joystick* joy = SDL_GameControllerGetJoystick(m_controllers[slot]);
@@ -454,6 +517,7 @@ int Gamepads::hatCount(int slot) const
 bool Gamepads::rumble(int slot, Uint16 lowFrequency, Uint16 highFrequency,
                       Uint32 durationMs)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (slot < 0 || slot >= kMaxControllers || !m_controllers[slot])
         return false;
     return SDL_GameControllerRumble(m_controllers[slot], lowFrequency,

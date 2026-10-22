@@ -3,7 +3,10 @@
 
 #include <SDL.h>
 
+#include <atomic>
+#include <mutex>
 #include <string>
+#include <thread>
 
 namespace allnes::gamepad
 {
@@ -72,12 +75,19 @@ private:
     bool prepareDevice(int deviceIndex);
     void open(int deviceIndex);
     void closeSlot(int slot);
-    int  findEmptySlot() const;
     bool rawHat(int slot, Uint8 mask) const;
+
+    // Runs the blocking subsystem init + device enumeration. Lives on a
+    // background thread so a misbehaving pad can never stall the main thread.
+    void initWorker();
 
     SDL_GameController* m_controllers[kMaxControllers] = { nullptr, nullptr };
     SDL_JoystickID      m_instanceIds[kMaxControllers] = { 0, 0 };
     bool                m_initialized = false;
+
+    mutable std::mutex m_mutex;             // guards controllers / ids / initialized
+    std::atomic<bool>  m_stop{false};       // asked the init worker to bail out
+    std::atomic<bool>  m_workerDone{false}; // init worker finished (or failed)
 };
 } // namespace allnes::gamepad
 

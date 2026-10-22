@@ -3518,14 +3518,14 @@ void LvglLauncherApp::Impl::pollGamepad()
         const float lx = connected ? surface->padAxis(slot, display::PadLeftX) / 32768.0f : 0.0f;
         const float ly = connected ? surface->padAxis(slot, display::PadLeftY) / 32768.0f : 0.0f;
         lv_obj_set_pos(padStickNubL, px(131 + static_cast<int>(lx * 9)),
-                       px(81 - static_cast<int>(ly * 9)));
+                       px(81 + static_cast<int>(ly * 9)));
     }
     if (padStickNubR)
     {
         const float rx = connected ? surface->padAxis(slot, display::PadRightX) / 32768.0f : 0.0f;
         const float ry = connected ? surface->padAxis(slot, display::PadRightY) / 32768.0f : 0.0f;
         lv_obj_set_pos(padStickNubR, px(319 + static_cast<int>(rx * 9)),
-                       px(163 - static_cast<int>(ry * 9)));
+                       px(163 + static_cast<int>(ry * 9)));
     }
 
     // Trigger bars are axis-driven.

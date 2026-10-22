@@ -380,6 +380,31 @@ GameResult runGame(const Options& opts,
                     break;
                 }
                 break;
+            case SDL_CONTROLLERBUTTONDOWN:
+                // The guide/home button mirrors Esc: leave the game exactly the
+                // way the keyboard does.
+                if (event.cbutton.button != SDL_CONTROLLER_BUTTON_GUIDE)
+                    break;
+                if (!returnToMenuOnEsc)
+                {
+                    running       = false;
+                    quitRequested = true;
+                    break;
+                }
+                switch (askLeaveGame(video.window()))
+                {
+                case LeaveChoice::Cancel:
+                    break; // the window stays open, keep playing
+                case LeaveChoice::BackToMenu:
+                    running    = false;
+                    backToMenu = true;
+                    break;
+                case LeaveChoice::QuitDesktop:
+                    running       = false;
+                    quitRequested = true;
+                    break;
+                }
+                break;
             case SDL_KEYDOWN:
                 if (event.key.repeat)
                     break;
