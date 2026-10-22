@@ -301,7 +301,7 @@ void NoiseChannel::writePeriod(Byte value)
 void NoiseChannel::writeLength(Byte value)
 {
     length.load(value >> 3);
-    envelope.divider.restart();
+    envelope.trigger();
 }
 
 void NoiseChannel::tick()
@@ -309,21 +309,22 @@ void NoiseChannel::tick()
     if (!m_divider.tick())
         return;
 
-    // The feedback tap depends on both the mode bit and bit 1 of the shift
-    // register; this mirrors the APU's behavior for each tap combination.
-    bool tap;
-    if (m_shiftRegister & 0x0002)
-        tap = !m_shortMode;
-    else
-        tap = (m_shiftRegister & 0x0040) != 0;
+    // Noise mode: bit 0 XOR bit 1 (long mode) or bit 6 (short mode).
+    const std::uint16_t tapBit = m_shortMode ? 0x0040 : 0x0002;
+    const bool feedback = ((m_shiftRegister & 0x0001) != 0) !=
+                          ((m_shiftRegister & tapBit) != 0);
 
-    const bool feedback = tap != ((m_shiftRegister & 0x0001) != 0);
     m_shiftRegister =
       static_cast<std::uint16_t>((m_shiftRegister >> 1) | (feedback ? 0x4000 : 0x0000));
 }
 
 Byte NoiseChannel::sample() const
 {
+    // The shift register's LSB gates the envelope: a set bit silences the
+    // channel for that step. Without this the channel would only emit DC.
+    if (length.muted() || (m_shiftRegister & 0x0001) != 0)
+        return 0;
+
     return static_cast<Byte>(envelope.level());
 }
 
@@ -412,10 +413,10 @@ int DmcChannel::nextDelta()
             m_silenced = true;
         }
     }
-    else
-    {
-        --m_remainingBits;
-    }
+
+    // Each loaded byte provides exactly eight output bits, including the bit
+    // shifted out in the load cycle.
+    --m_remainingBits;
 
     const int delta = m_shifter & 0x01;
     m_shifter >>= 1;

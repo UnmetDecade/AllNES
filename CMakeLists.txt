@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.12)
 project(AllNES LANGUAGES C CXX)
 
+# The macOS directory chooser uses NSOpenPanel, so that one file is ObjC++.
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 # LVGL is added from third_party/ but we attach FreeType to its target from
 # this directory; CMP0079 permits target_link_libraries() across directories.
 if(POLICY CMP0079)

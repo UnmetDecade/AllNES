@@ -80,6 +80,8 @@ LauncherConfig loadLauncherConfig(const std::string& path)
 
         if (key == "library")
             config.libraryPath = value;
+        else if (key == "pickerdir")
+            config.lastPickerDir = value;
         else if (key == "resolution")
             config.resolutionIndex = std::atoi(value.c_str());
         else if (key == "recent" && !value.empty())
@@ -146,6 +148,8 @@ bool saveLauncherConfig(const std::string& path, const LauncherConfig& config)
 
     file << "# AllNES launcher settings\n";
     file << "library=" << config.libraryPath << '\n';
+    if (!config.lastPickerDir.empty())
+        file << "pickerdir=" << config.lastPickerDir << '\n';
     file << "resolution=" << config.resolutionIndex << '\n';
     file << "recursive=" << (config.recursiveScan ? "1" : "0") << '\n';
     file << "patches=" << (config.detectPatches ? "1" : "0") << '\n';

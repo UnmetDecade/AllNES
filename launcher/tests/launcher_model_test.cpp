@@ -192,6 +192,7 @@ void testSettings(const TempDir& temp)
 
     LauncherConfig config;
     config.libraryPath     = "/home/player/ROMs";
+    config.lastPickerDir   = "/home/player/Downloads";
     config.resolutionIndex = 3;
     config.recent          = { "/home/player/ROMs/contra.nes", "/home/player/ROMs/mm2.nes" };
 
@@ -200,6 +201,7 @@ void testSettings(const TempDir& temp)
 
     const LauncherConfig loaded = loadLauncherConfig(path.string());
     check(loaded.libraryPath == config.libraryPath, "library path round-trips");
+    check(loaded.lastPickerDir == config.lastPickerDir, "picker directory round-trips");
     check(loaded.resolutionIndex == config.resolutionIndex, "resolution index round-trips");
     check(loaded.recent.size() == 2 && loaded.recent[0] == config.recent[0],
           "recent games round-trip in order");

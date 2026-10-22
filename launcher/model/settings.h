@@ -21,6 +21,9 @@ int                     resolutionPresetCount();
 struct LauncherConfig
 {
     std::string              libraryPath;
+    // Directory the folder dialog was last left in. Used to reopen the picker
+    // where the user left off, including after cancelling.
+    std::string              lastPickerDir;
     int                      resolutionIndex = 0;
     std::vector<std::string> recent;     // ROM paths, most recently launched first
     std::vector<std::string> favorites;  // ROM paths marked as favorites

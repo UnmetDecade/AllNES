@@ -499,6 +499,7 @@ struct LvglLauncherApp::Impl
     int         tab       = 0;
     int         selected  = 0;
     int         scrollRow = 0;
+    float       wheelAccum = 0.0f;  // precise wheel deltas still to be consumed
     int         libraryFilter = 0;  // 0 = all, 1 = favorites
     std::string query;
     bool        searchFocused = false;
@@ -605,6 +606,9 @@ struct LvglLauncherApp::Impl
     lv_obj_t*  libraryThumb   = nullptr;
 
     // Right panel.
+    // Transparent dismiss layers for the drawer: top bar, content, status bar.
+    // Each one sits below the controls of its region.
+    lv_obj_t* rightCatchers[3] = {};
     lv_obj_t* rightPanel     = nullptr;
     Art       rightArt;
     lv_obj_t* rightAmbient   = nullptr;
@@ -673,11 +677,22 @@ struct LvglLauncherApp::Impl
     lv_obj_t* turboVal         = nullptr;
     int       gpPlayer         = 0;
     bool      gpPrevBtn[display::PadButtonCount] = {};
-    struct PadShape { lv_obj_t* obj = nullptr; int buttonIndex = -1; };
+    bool      gpPrevTrigger[2] = {};
+    struct PadShape
+    {
+        lv_obj_t* obj         = nullptr;
+        lv_obj_t* label       = nullptr;
+        int       buttonIndex = -1;
+        uint32_t  baseColor   = 0x3D4557;
+        uint32_t  activeColor = 0x58A2FF;
+        uint32_t  labelColor  = 0xFFFFFF;
+        lv_opa_t  baseBorderOpa = 30;
+    };
     PadShape  padShapes[display::PadButtonCount];
     lv_obj_t* padStickNubL = nullptr;
     lv_obj_t* padStickNubR = nullptr;
-    lv_obj_t* padDpadHits[4] = {};
+    lv_obj_t* gpTriggerShapes[2] = {};
+    lv_obj_t* gpDpadLbl = nullptr;
 
     // Status.
     lv_obj_t* statusLib      = nullptr;
@@ -705,7 +720,7 @@ struct LvglLauncherApp::Impl
     void handleEvent(const display::Event& event);
     void handleKey(const display::Event& key);
     void handleTextInput(const std::string& text);
-    void handleMouseWheel(int wheelY);
+    void handleMouseWheel(float wheelY);
 
     void focusSearch();
     void unfocusSearch();
@@ -723,7 +738,7 @@ struct LvglLauncherApp::Impl
     void changeResolution(int delta);
     void setResolution(int index);
     void launchSelected();
-    void saveConfig();
+    bool saveConfig();
     bool isFavoritePath(const std::string& path) const;
     void toggleFavorite();
     void setLibraryFilter(int filter);
@@ -767,6 +782,8 @@ struct LvglLauncherApp::Impl
     void      setToggle(lv_obj_t* toggle, bool on);
     lv_obj_t* makeCard(lv_obj_t* parent, int y, int h,
                        const char* title, const char* hint);
+    lv_obj_t* makeCard(lv_obj_t* parent, int x, int y, int w, int h,
+                       const char* title, const char* hint);
     Tag       makeTag(lv_obj_t* parent);
     lv_obj_t* makeTagRow(lv_obj_t* parent, int x, int y);
     void      setTag(Tag& tag, const char* text, uint32_t textColor,
@@ -805,6 +822,7 @@ struct LvglLauncherApp::Impl
     static void gridCb(lv_event_t* event);
     static void rightPlayCb(lv_event_t* event);
     static void rightPillCb(lv_event_t* event);
+    static void rightCatcherCb(lv_event_t* event);
     static void rightCloseCb(lv_event_t* event);
     static void rightFavCb(lv_event_t* event);
     static void libFilterCb(lv_event_t* event);
@@ -855,7 +873,9 @@ bool LvglLauncherApp::Impl::init(const std::string& libraryOverride,
     renderScale = surface->renderScale();
     if (renderScale <= 0.0f)
         renderScale = 1.0f;
-    surface->setTextInput(true);
+    // Text input (and the IME on macOS) stays off until the search box is
+    // focused; see focusSearch()/showWindow().
+    surface->setTextInput(false);
     s_active = this;
 
     // LVGL core: no SDL driver, no OS/thread port. The UI owns input state and
@@ -1085,9 +1105,9 @@ const RomEntry* LvglLauncherApp::Impl::selectedRom() const
     return index < 0 ? nullptr : &roms[static_cast<std::size_t>(index)];
 }
 
-void LvglLauncherApp::Impl::saveConfig()
+bool LvglLauncherApp::Impl::saveConfig()
 {
-    saveLauncherConfig(configPath, config);
+    return saveLauncherConfig(configPath, config);
 }
 
 bool LvglLauncherApp::Impl::isFavoritePath(const std::string& path) const
@@ -1190,6 +1210,7 @@ void LvglLauncherApp::Impl::rescan()
     roms      = scanLibrary(library, scanError, config.recursiveScan);
     error     = scanError;
     scrollRow = 0;
+    wheelAccum = 0.0f;
     rebuildRecent();
     rebuildVisible();
 
@@ -1343,6 +1364,7 @@ void LvglLauncherApp::Impl::launchSelected()
 void LvglLauncherApp::Impl::setTab(int newTab)
 {
     tab = std::clamp(newTab, 0, 2);
+    wheelAccum = 0.0f;
     closeRight();
     rebuildVisible();
     ensureSelectionVisible();
@@ -1435,6 +1457,11 @@ void LvglLauncherApp::Impl::openRight()
         return;
     rightOpen = true;
     refreshRight();
+    for (lv_obj_t* catcher : rightCatchers)
+    {
+        if (catcher)
+            lv_obj_set_hidden(catcher, false);
+    }
     lv_obj_set_hidden(rightPanel, false);
     lv_obj_move_foreground(rightPanel);
 }
@@ -1444,6 +1471,11 @@ void LvglLauncherApp::Impl::closeRight()
     if (!rightOpen)
         return;
     rightOpen = false;
+    for (lv_obj_t* catcher : rightCatchers)
+    {
+        if (catcher)
+            lv_obj_set_hidden(catcher, true);
+    }
     if (rightPanel)
         lv_obj_set_hidden(rightPanel, true);
 }
@@ -1733,11 +1765,30 @@ void LvglLauncherApp::Impl::handleTextInput(const std::string& text)
     syncQueryFromTextarea();
 }
 
-void LvglLauncherApp::Impl::handleMouseWheel(int wheelY)
+void LvglLauncherApp::Impl::handleMouseWheel(float wheelY)
 {
-    if (tab == 2 || wheelY == 0)
+    if (tab == 2 || wheelY == 0.0f)
         return;
-    selectRelative(-wheelY * kColumns);
+
+    // Accumulate precise deltas and advance one row per full scroll step.
+    // Mouse wheel notches are whole steps; trackpads emit many fractions, so
+    // this keeps a single flick to a few rows instead of one row per event.
+    constexpr float kRowStep = 1.0f;
+    wheelAccum += wheelY;
+
+    int rows = 0;
+    while (wheelAccum >= kRowStep)
+    {
+        wheelAccum -= kRowStep;
+        --rows;
+    }
+    while (wheelAccum <= -kRowStep)
+    {
+        wheelAccum += kRowStep;
+        ++rows;
+    }
+    if (rows != 0)
+        selectRelative(rows * kColumns);
 }
 
 // --------------------------------------------------------- UI factories ---
@@ -1841,8 +1892,13 @@ void LvglLauncherApp::Impl::setToggle(lv_obj_t* toggle, bool on)
 lv_obj_t* LvglLauncherApp::Impl::makeCard(lv_obj_t* parent, int y, int h,
                                           const char* title, const char* hint)
 {
-    lv_obj_t* card = makeBox(parent, kSettingsCardX, y, kSettingsCardW, h, 14,
-                             0x1B1E26, LV_OPA_COVER);
+    return makeCard(parent, kSettingsCardX, y, kSettingsCardW, h, title, hint);
+}
+
+lv_obj_t* LvglLauncherApp::Impl::makeCard(lv_obj_t* parent, int x, int y, int w, int h,
+                                          const char* title, const char* hint)
+{
+    lv_obj_t* card = makeBox(parent, x, y, w, h, 14, 0x1B1E26, LV_OPA_COVER);
     lv_obj_set_style_clip_corner(card, true, 0);
     lv_obj_set_style_border_width(card, px(1), 0);
     lv_obj_set_style_border_color(card, col(0xFFFFFF), 0);
@@ -1852,7 +1908,7 @@ lv_obj_t* LvglLauncherApp::Impl::makeCard(lv_obj_t* parent, int y, int h,
     if (hint)
     {
         lv_obj_t* hintLabel = makeLabel(card, hint, fonts.f12, kDimHex, 30, 54);
-        lv_obj_set_width(hintLabel, px(kSettingsCardW - 60));
+        lv_obj_set_width(hintLabel, px(w - 60));
         lv_label_set_long_mode(hintLabel, LV_LABEL_LONG_MODE_DOTS);
     }
     return card;
@@ -2050,11 +2106,30 @@ void LvglLauncherApp::Impl::createUi()
     settingsPage = makeBox(screen, 0, 0, kLogicalWidth, kLogicalHeight,
                            0, 0x000000, LV_OPA_TRANSP);
 
+    // Dismiss layers for the details drawer. A click anywhere outside the
+    // drawer closes it. Each layer is created before the bars it covers so
+    // those bars' buttons stay on top and keep their normal behaviour.
+    const auto makeCatcher = [&](int x, int y, int w, int h) {
+        lv_obj_t* catcher = makeBox(screen, x, y, w, h, 0, 0x000000, LV_OPA_TRANSP);
+        lv_obj_set_clickable(catcher, true);
+        lv_obj_add_event_cb(catcher, &Impl::rightCatcherCb, LV_EVENT_CLICKED, this);
+        lv_obj_set_hidden(catcher, true);
+        return catcher;
+    };
+    rightCatchers[0] = makeCatcher(0, 0, kLogicalWidth, kNavHeight);
+
     createTopBar();
     createHomePage();
     createLibraryPage();
     createSettingsPage();
+
+    rightCatchers[2] = makeCatcher(0, kStatusY, kLogicalWidth, kStatusH);
     createStatusBar();
+
+    // Content layer sits above the pages but below the drawer.
+    rightCatchers[1] = makeCatcher(0, kNavHeight, kLogicalWidth,
+                                   kStatusY - kNavHeight);
+
     // Last, so the detail drawer paints above the pages and status bar.
     createRightPanel();
 
@@ -2322,7 +2397,7 @@ void LvglLauncherApp::Impl::createSettingsPage()
         lv_obj_add_event_cb(settingsNav[i], &Impl::settingsNavCb, LV_EVENT_CLICKED, this);
     }
 
-    makeLabel(settingsSidebar, "AllNES v0.2.0\nLVGL + FreeType\nWindows / macOS / Linux",
+    makeLabel(settingsSidebar, "AllNES v0.3.0\nLVGL + FreeType\nWindows / macOS / Linux",
               fonts.f11, kFaintHex, 24, kSettingsSidebarH - 64);
 
     // ---- scrollable content area + six panels ----
@@ -2333,7 +2408,7 @@ void LvglLauncherApp::Impl::createSettingsPage()
     lv_obj_set_scroll_dir(settingsContent, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(settingsContent, LV_SCROLLBAR_MODE_AUTO);
 
-    const int panelHeights[6] = { 470, 560, 1304, 440, 380, 260 };
+    const int panelHeights[6] = { 470, 560, 896, 440, 380, 260 };
     for (int i = 0; i < 6; ++i)
     {
         settingsPanels[i] = makeBox(settingsContent, 0, 0, kSettingsContentW, panelHeights[i],
@@ -2345,9 +2420,10 @@ void LvglLauncherApp::Impl::createSettingsPage()
         makeLabel(panel, title, fonts.f24, kWhiteHex, kSettingsCardX, 0);
         makeLabel(panel, sub, fonts.f12, kDimHex, kSettingsCardX, 36);
     };
-    auto addToggleRow = [&](lv_obj_t* card, int y, const char* label, lv_obj_t*& toggle, bool on) {
+    auto addToggleRow = [&](lv_obj_t* card, int y, const char* label, lv_obj_t*& toggle,
+                            bool on, int cardW = kSettingsCardW) {
         makeLabel(card, label, fonts.f14, kTextHex, 30, y);
-        toggle = makeToggle(card, kSettingsCardW - 74, y - 10, on);
+        toggle = makeToggle(card, cardW - 74, y - 10, on);
         lv_obj_add_event_cb(toggle, &Impl::settingsToggleCb, LV_EVENT_CLICKED, this);
     };
 
@@ -2355,7 +2431,7 @@ void LvglLauncherApp::Impl::createSettingsPage()
     lv_obj_t* lib = settingsPanels[0];
     pageHead(lib, "游戏库", "ROM 目录与扫描");
     lv_obj_t* c = makeCard(lib, 64, 200, "ROM 目录", nullptr);
-    makeLabel(c, "启动器直接扫描该目录下的 .nes 文件（不递归），库路径可用 --library 指定。",
+    makeLabel(c, "启动器直接扫描该目录下的 .nes 文件；点「选择文件夹」或启动时用 --library 指定。",
               fonts.f12, kDimHex, 30, 54);
     lv_obj_t* pathBox = makeBox(c, 30, 92, 1080, 42, 10, 0x21252F, LV_OPA_COVER);
     lv_obj_set_style_border_width(pathBox, px(1), 0);
@@ -2432,56 +2508,147 @@ void LvglLauncherApp::Impl::createSettingsPage()
                                     0xFF5F56, 60, "恢复默认映射", fonts.f13, 0xFF5F56);
     lv_obj_add_event_cb(resetBtn, &Impl::gpResetCb, LV_EVENT_CLICKED, this);
 
-    // Left: a live gamepad visualizer. Shapes are registered in padShapes so
-    // pollGamepad() can light them up; stick nubs are moved by their axes.
-    lv_obj_t* padBox = makeBox(c, 30, 150, 540, 300, 16, 0x21252F, LV_OPA_COVER);
+    // Left: a live Xbox-style visualizer. Shapes are registered in padShapes
+    // so pollGamepad() can light them up; stick nubs are moved by their axes.
+    lv_obj_t* padBox = makeBox(c, 30, 150, 540, 300, 18, 0x171B22, LV_OPA_COVER);
     lv_obj_set_style_border_width(padBox, px(1), 0);
     lv_obj_set_style_border_color(padBox, col(0xFFFFFF), 0);
-    lv_obj_set_style_border_opa(padBox, 20, 0);
-    auto hit = [&](lv_obj_t* parent, int x, int y, int w, int h, int radius,
-                   int buttonIndex, uint32_t color) {
-        lv_obj_t* o = makeBox(parent, x, y, w, h, radius, color, LV_OPA_COVER);
+    lv_obj_set_style_border_opa(padBox, 18, 0);
+
+    const auto edge = [&](lv_obj_t* o, uint32_t color, lv_opa_t opa) {
         lv_obj_set_style_border_width(o, px(1), 0);
-        lv_obj_set_style_border_color(o, col(0xFFFFFF), 0);
-        lv_obj_set_style_border_opa(o, 30, 0);
-        lv_obj_set_clickable(o, false);
-        if (buttonIndex >= 0)
-        {
-            padShapes[buttonIndex].obj = o;
-            padShapes[buttonIndex].buttonIndex = buttonIndex;
-        }
+        lv_obj_set_style_border_color(o, col(color), 0);
+        lv_obj_set_style_border_opa(o, opa, 0);
+    };
+
+    // Registers a shape with the poller. baseColor is the idle face and
+    // activeColor the pressed face; labels switch to white when pressed.
+    const auto bind = [&](lv_obj_t* o, int buttonIndex, uint32_t baseColor,
+                          uint32_t activeColor, uint32_t labelColor,
+                          lv_opa_t baseBorderOpa) {
+        if (buttonIndex < 0)
+            return;
+        padShapes[buttonIndex].obj           = o;
+        padShapes[buttonIndex].buttonIndex   = buttonIndex;
+        padShapes[buttonIndex].baseColor     = baseColor;
+        padShapes[buttonIndex].activeColor   = activeColor;
+        padShapes[buttonIndex].labelColor    = labelColor;
+        padShapes[buttonIndex].baseBorderOpa = baseBorderOpa;
+    };
+
+    const auto hit = [&](int x, int y, int w, int h, int radius, int buttonIndex,
+                         uint32_t color) {
+        lv_obj_t* o = makeBox(padBox, x, y, w, h, radius, color, LV_OPA_COVER);
+        edge(o, 0xFFFFFF, 26);
+        bind(o, buttonIndex, color, kAccentHex, kWhiteHex, 26);
         return o;
     };
-    // Xbox-style pad, scaled from the HTML mockup's 400x220 SVG viewBox.
-    lv_obj_t* body = makeBox(padBox, 78, 66, 384, 196, 70, 0x232733, LV_OPA_COVER);
-    lv_obj_set_style_border_width(body, px(2), 0);
-    lv_obj_set_style_border_color(body, col(0xFFFFFF), 0);
-    lv_obj_set_style_border_opa(body, 30, 0);
-    lv_obj_set_clickable(body, false);
-    // Shoulders / triggers.
-    hit(padBox, 135, 66, 65, 22, 11, display::PadLeftShoulder, 0x3A4050);
-    hit(padBox, 340, 66, 65, 22, 11, display::PadRightShoulder, 0x3A4050);
-    hit(padBox, 70, 88, 42, 18, 9, -1, 0x2E3340);
-    hit(padBox, 427, 88, 42, 18, 9, -1, 0x2E3340);
-    // D-pad cross (top-left).
-    hit(padBox, 130, 120, 18, 21, 6, display::PadDpadUp, 0x3A4050);
-    hit(padBox, 130, 154, 18, 21, 6, display::PadDpadDown, 0x3A4050);
-    hit(padBox, 111, 139, 21, 18, 6, display::PadDpadLeft, 0x3A4050);
-    hit(padBox, 145, 139, 21, 18, 6, display::PadDpadRight, 0x3A4050);
-    makeBox(padBox, 130, 139, 18, 18, 6, 0x3A4050, LV_OPA_COVER); // center
-    // Sticks (outer ring + movable nub).
-    makeBox(padBox, 182, 140, 46, 46, 23, 0xFFFFFF, 14);
-    padStickNubL = hit(padBox, 191, 149, 28, 28, 14, display::PadLeftStick, 0x3A4050);
-    makeBox(padBox, 312, 140, 46, 46, 23, 0xFFFFFF, 14);
-    padStickNubR = hit(padBox, 321, 149, 28, 28, 14, display::PadRightStick, 0x3A4050);
-    // ABXY (right diamond).
-    hit(padBox, 439, 137, 32, 32, 16, display::PadA, 0x3A4050);
-    hit(padBox, 404, 162, 32, 32, 16, display::PadB, 0x3A4050);
-    hit(padBox, 404, 112, 32, 32, 16, display::PadX, 0x3A4050);
-    hit(padBox, 369, 137, 32, 32, 16, display::PadY, 0x3A4050);
-    // Select / Start (center).
-    hit(padBox, 245, 153, 37, 13, 6, display::PadBack, 0x3A4050);
-    hit(padBox, 297, 153, 37, 13, 6, display::PadStart, 0x3A4050);
+
+    // Grips sit behind the body and give the silhouette its controller shape.
+    lv_obj_t* gripL = makeBox(padBox, 108, 112, 88, 164, 44, 0x232833, LV_OPA_COVER);
+    lv_obj_set_style_transform_pivot_x(gripL, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(gripL, lv_pct(50), 0);
+    lv_obj_set_style_transform_rotation(gripL, 120, 0);
+    lv_obj_t* gripR = makeBox(padBox, 344, 112, 88, 164, 44, 0x232833, LV_OPA_COVER);
+    lv_obj_set_style_transform_pivot_x(gripR, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(gripR, lv_pct(50), 0);
+    lv_obj_set_style_transform_rotation(gripR, -120, 0);
+
+    // Body: soft vertical gradient, a thin top highlight and a drop shadow.
+    lv_obj_t* body = makeBox(padBox, 70, 58, 400, 158, 58, 0x3C4558, LV_OPA_COVER);
+    lv_obj_set_style_bg_grad_color(body, col(0x232833), 0);
+    lv_obj_set_style_bg_grad_dir(body, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_shadow_width(body, px(16), 0);
+    lv_obj_set_style_shadow_color(body, col(0x000000), 0);
+    lv_obj_set_style_shadow_opa(body, 70, 0);
+    lv_obj_set_style_shadow_ofs_y(body, px(6), 0);
+    makeBox(padBox, 110, 64, 320, 12, 6, 0xFFFFFF, 6);
+
+    // LT/RT are axes, so they get their own shapes instead of padShapes keys.
+    const auto trigger = [&](int x, const char* text, int index) {
+        lv_obj_t* o = makeBox(padBox, x, 24, 92, 18, 9, 0x2A303C, LV_OPA_COVER);
+        edge(o, 0xFFFFFF, 20);
+        gpTriggerShapes[index] = o;
+        makeCenteredLabel(o, text, fonts.f11, kMutedHex);
+    };
+    trigger(112, "LT", 0);
+    trigger(336, "RT", 1);
+
+    // LB/RB sit above the body, under the triggers.
+    lv_obj_t* lb = hit(110, 44, 100, 26, 13, display::PadLeftShoulder, 0x3A4252);
+    padShapes[display::PadLeftShoulder].label =
+        makeCenteredLabel(lb, "LB", fonts.f11, kTextHex);
+    lv_obj_t* rb = hit(330, 44, 100, 26, 13, display::PadRightShoulder, 0x3A4252);
+    padShapes[display::PadRightShoulder].label =
+        makeCenteredLabel(rb, "RB", fonts.f11, kTextHex);
+
+    // D-pad: recessed cross base plus four raised direction blocks.
+    makeBox(padBox, 133, 159, 78, 26, 8, 0x1A1F28, LV_OPA_COVER);
+    makeBox(padBox, 159, 133, 26, 78, 8, 0x1A1F28, LV_OPA_COVER);
+    hit(161, 135, 22, 22, 5, display::PadDpadUp, 0x4A5366);
+    hit(161, 187, 22, 22, 5, display::PadDpadDown, 0x4A5366);
+    hit(135, 161, 22, 22, 5, display::PadDpadLeft, 0x4A5366);
+    hit(187, 161, 22, 22, 5, display::PadDpadRight, 0x4A5366);
+    makeBox(padBox, 164, 164, 16, 16, 5, 0x3A4252, LV_OPA_COVER);
+
+    // Recessed stick wells; the raised nubs are bound to L3/R3.
+    const auto stick = [&](int cx, int cy, lv_obj_t** nub) {
+        makeBox(padBox, cx - 30, cy - 30, 60, 60, 30, 0x10141A, LV_OPA_COVER);
+        lv_obj_t* well = makeBox(padBox, cx - 27, cy - 27, 54, 54, 27, 0x2A303D,
+                                 LV_OPA_COVER);
+        edge(well, 0x000000, 100);
+        lv_obj_t* n = makeBox(padBox, cx - 19, cy - 19, 38, 38, 19, 0x707C92,
+                              LV_OPA_COVER);
+        lv_obj_set_style_bg_grad_color(n, col(0x39404F), 0);
+        lv_obj_set_style_bg_grad_dir(n, LV_GRAD_DIR_VER, 0);
+        edge(n, 0x9AA5B8, 70);
+        makeBox(n, 7, 5, 14, 14, 7, 0xFFFFFF, 22); // soft top highlight
+        *nub = n;
+    };
+    stick(150, 100, &padStickNubL);
+    stick(338, 182, &padStickNubR);
+    bind(padStickNubL, display::PadLeftStick, 0x707C92, 0x8C99B0, kWhiteHex, 70);
+    bind(padStickNubR, display::PadRightStick, 0x707C92, 0x8C99B0, kWhiteHex, 70);
+
+    // ABXY diamond, coloured like the Xbox buttons.
+    struct Abxy { const char* text; int cx; int cy; uint32_t color; int button; };
+    const Abxy abxy[] = {
+        { "Y", 398, 92, 0xE3B341, display::PadY },
+        { "X", 362, 128, 0x5AA2F0, display::PadX },
+        { "B", 434, 128, 0xE06C6C, display::PadB },
+        { "A", 398, 164, 0x59C36A, display::PadA },
+    };
+    for (const Abxy& b : abxy)
+    {
+        lv_obj_t* o = makeBox(padBox, b.cx - 19, b.cy - 19, 38, 38, 19, 0x2A303C,
+                              LV_OPA_COVER);
+        edge(o, b.color, 140);
+        lv_obj_set_style_border_width(o, px(2), 0);
+        bind(o, b.button, 0x2A303C, b.color, b.color, 140);
+        padShapes[b.button].label = makeCenteredLabel(o, b.text, fonts.f20, b.color);
+    }
+
+    // View / Menu: small recessed circles with tiny glyph shapes.
+    lv_obj_t* view = hit(237, 108, 20, 20, 10, display::PadBack, 0x2A303C);
+    makeBox(view, 5, 5, 6, 6, 1, 0xFFFFFF, 70);
+    makeBox(view, 9, 9, 6, 6, 1, 0xFFFFFF, 40);
+
+    lv_obj_t* menu = hit(283, 108, 20, 20, 10, display::PadStart, 0x2A303C);
+    for (int i = 0; i < 3; ++i)
+        makeBox(menu, 5, 5 + i * 4, 10, 2, 1, 0xFFFFFF, 70);
+
+    // Guide sits between them, with a lit ring.
+    lv_obj_t* guide = hit(256, 136, 28, 28, 14, display::PadGuide, 0x242A34);
+    bind(guide, display::PadGuide, 0x242A34, 0x3FA34D, kWhiteHex, 40);
+    lv_obj_t* ring = makeBox(guide, 8, 8, 12, 12, 6, 0xFFFFFF, 0);
+    lv_obj_set_style_border_width(ring, px(2), 0);
+    lv_obj_set_style_border_color(ring, col(0xFFFFFF), 0);
+    lv_obj_set_style_border_opa(ring, 150, 0);
+
+    // Live D-pad readout: all four directions at a glance.
+    gpDpadLbl = makeLabel(c, "十字键 —", fonts.f12, kMutedHex, 30, 458);
+    lv_obj_set_width(gpDpadLbl, px(180));
+    makeLabel(c, "LT/RT 扳机 · LB/RB 肩键 · 双摇杆可按下", fonts.f11, kDimHex, 220, 459);
 
     // Right: button chips + axis monitor + last input.
     for (int i = 0; i < display::PadButtonCount; ++i)
@@ -2508,39 +2675,43 @@ void LvglLauncherApp::Impl::createSettingsPage()
     gpLastInput = makeLabel(c, "最后输入：—", fonts.f12, kDimHex, 600, 500);
     lv_obj_set_width(gpLastInput, px(540));
 
-    // ---- 按键绑定 ----
-    c = makeCard(pad, 604, 360, "按键绑定", "按键绑定由模拟器 keybindings.conf 管理（模拟器层）。");
+    // ---- 按键绑定 / 高级：并排显示，整页无需滚动即可看全 ----
+    const int halfCardW = (kSettingsCardW - 20) / 2;
+
+    c = makeCard(pad, 0, 600, halfCardW, 280, "按键绑定",
+                 "按键绑定由模拟器 keybindings.conf 管理（模拟器层）。");
     for (int i = 0; i < static_cast<int>(sizeof(kDefaultBinds) / sizeof(kDefaultBinds[0])); ++i)
     {
-        const int colX = 30 + (i / 6) * 620;
-        const int rowY = 92 + (i % 6) * 40;
+        const int colX = 30 + (i / 6) * 360;
+        const int rowY = 92 + (i % 6) * 32;
         makeLabel(c, kDefaultBinds[i].label, fonts.f13, kTextHex, colX, rowY);
         makeLabel(c, kDefaultBinds[i].binding, fonts.f13, kMutedHex, colX + 140, rowY);
     }
 
     // ---- 高级 ----
-    c = makeCard(pad, 984, 300, "高级", nullptr);
-    addToggleRow(c, 92, "摇杆模拟十字键", toggleStickDpad, config.stickToDpad);
-    makeLabel(c, "摇杆死区", fonts.f14, kTextHex, 30, 132);
+    c = makeCard(pad, halfCardW + 20, 600, halfCardW, 280, "高级", nullptr);
+    addToggleRow(c, 96, "摇杆模拟十字键", toggleStickDpad, config.stickToDpad, halfCardW);
+    makeLabel(c, "摇杆死区", fonts.f14, kTextHex, 30, 144);
     sliderDeadzone = lv_slider_create(c);
-    lv_obj_set_pos(sliderDeadzone, px(150), px(128));
+    lv_obj_set_pos(sliderDeadzone, px(150), px(140));
     lv_obj_set_size(sliderDeadzone, px(300), px(10));
     lv_slider_set_range(sliderDeadzone, 0, 50);
     lv_slider_set_value(sliderDeadzone, static_cast<int>(config.deadzone * 100.0f), LV_ANIM_OFF);
     lv_obj_set_style_bg_color(sliderDeadzone, col(0xFFFFFF), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(sliderDeadzone, 16, LV_PART_MAIN);
     lv_obj_add_event_cb(sliderDeadzone, &Impl::deadzoneSliderCb, LV_EVENT_VALUE_CHANGED, this);
-    deadzoneVal = makeLabel(c, "0.15", fonts.f12, kMutedHex, 470, 126);
-    makeLabel(c, "连发速度", fonts.f14, kTextHex, 30, 172);
+    deadzoneVal = makeLabel(c, "0.15", fonts.f12, kMutedHex, 470, 138);
+    makeLabel(c, "连发速度", fonts.f14, kTextHex, 30, 190);
     sliderTurbo = lv_slider_create(c);
-    lv_obj_set_pos(sliderTurbo, px(150), px(168));
+    lv_obj_set_pos(sliderTurbo, px(150), px(186));
     lv_obj_set_size(sliderTurbo, px(300), px(10));
     lv_slider_set_range(sliderTurbo, 1, 30);
     lv_slider_set_value(sliderTurbo, config.turbo, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(sliderTurbo, col(0xFFFFFF), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(sliderTurbo, 16, LV_PART_MAIN);
     lv_obj_add_event_cb(sliderTurbo, &Impl::turboSliderCb, LV_EVENT_VALUE_CHANGED, this);
-    turboVal = makeLabel(c, "12 / 帧", fonts.f12, kMutedHex, 470, 166);
+    turboVal = makeLabel(c, "12 / 帧", fonts.f12, kMutedHex, 470, 184);
+    makeLabel(c, "设置保存在 launcher.conf，启动游戏时生效。", fonts.f11, kDimHex, 30, 232);
 
     // ================= 3 快捷键 =================
     lv_obj_t* keys = settingsPanels[3];
@@ -2585,7 +2756,7 @@ void LvglLauncherApp::Impl::createSettingsPage()
     lv_obj_t* about = settingsPanels[5];
     pageHead(about, "关于", "");
     c = makeCard(about, 64, 190, "AllNES", nullptr);
-    makeLabel(c, "版本 v0.2.0 · LVGL + FreeType", fonts.f14, kTextHex, 30, 62);
+    makeLabel(c, "版本 v0.3.0 · LVGL + FreeType", fonts.f14, kTextHex, 30, 62);
     makeLabel(c, "Windows / macOS / Linux", fonts.f13, kDimHex, 30, 90);
     makeLabel(c, "启动器可显示真实的 mapper、文件大小与运行状态。", fonts.f13, kDimHex, 30, 114);
     makeButton(c, 30, 142, 130, 40, 10, 0x21252F, LV_OPA_COVER, 0xFFFFFF, 20, "检查更新", fonts.f13, kTextHex);
@@ -3314,8 +3485,13 @@ void LvglLauncherApp::Impl::pollGamepad()
 
         if (padShapes[i].obj)
         {
-            lv_obj_set_style_bg_color(padShapes[i].obj, col(on ? kAccentHex : 0x3A4050), 0);
-            lv_obj_set_style_border_opa(padShapes[i].obj, on ? 255 : 30, 0);
+            PadShape& shape = padShapes[i];
+            lv_obj_set_style_bg_color(shape.obj,
+                                      col(on ? shape.activeColor : shape.baseColor), 0);
+            lv_obj_set_style_border_opa(shape.obj, on ? 255 : shape.baseBorderOpa, 0);
+            if (shape.label)
+                lv_obj_set_style_text_color(shape.label,
+                                            col(on ? kWhiteHex : shape.labelColor), 0);
         }
 
         if (on && !gpPrevBtn[i])
@@ -3335,20 +3511,57 @@ void LvglLauncherApp::Impl::pollGamepad()
         lv_label_set_text(gpAxes[i].val, buf);
     }
 
-    // Move the visualizer stick nubs to mirror the left/right sticks.
-    if (connected && padStickNubL)
+    // Move the visualizer stick nubs to mirror the left/right sticks, and let
+    // them spring back to centre when the pad disconnects.
+    if (padStickNubL)
     {
-        const float lx = surface->padAxis(slot, display::PadLeftX) / 32768.0f;
-        const float ly = surface->padAxis(slot, display::PadLeftY) / 32768.0f;
-        lv_obj_set_pos(padStickNubL, px(191 + static_cast<int>(lx * 9)),
-                       px(149 - static_cast<int>(ly * 9)));
+        const float lx = connected ? surface->padAxis(slot, display::PadLeftX) / 32768.0f : 0.0f;
+        const float ly = connected ? surface->padAxis(slot, display::PadLeftY) / 32768.0f : 0.0f;
+        lv_obj_set_pos(padStickNubL, px(131 + static_cast<int>(lx * 9)),
+                       px(81 - static_cast<int>(ly * 9)));
     }
-    if (connected && padStickNubR)
+    if (padStickNubR)
     {
-        const float rx = surface->padAxis(slot, display::PadRightX) / 32768.0f;
-        const float ry = surface->padAxis(slot, display::PadRightY) / 32768.0f;
-        lv_obj_set_pos(padStickNubR, px(321 + static_cast<int>(rx * 9)),
-                       px(149 - static_cast<int>(ry * 9)));
+        const float rx = connected ? surface->padAxis(slot, display::PadRightX) / 32768.0f : 0.0f;
+        const float ry = connected ? surface->padAxis(slot, display::PadRightY) / 32768.0f : 0.0f;
+        lv_obj_set_pos(padStickNubR, px(319 + static_cast<int>(rx * 9)),
+                       px(163 - static_cast<int>(ry * 9)));
+    }
+
+    // Trigger bars are axis-driven.
+    for (int t = 0; t < 2; ++t)
+    {
+        if (!gpTriggerShapes[t])
+            continue;
+
+        const int raw = connected
+                          ? surface->padAxis(slot, t == 0 ? display::PadTriggerLeft
+                                                          : display::PadTriggerRight)
+                          : 0;
+        const bool on = raw > 2000;
+        lv_obj_set_style_bg_color(gpTriggerShapes[t], col(on ? kAccentHex : 0x2A303C), 0);
+        lv_obj_set_style_border_opa(gpTriggerShapes[t], on ? 255 : 20, 0);
+        if (lv_obj_t* lbl = lv_obj_get_child(gpTriggerShapes[t], 0))
+            lv_obj_set_style_text_color(lbl, col(on ? kWhiteHex : kMutedHex), 0);
+
+        if (on && !gpPrevTrigger[t])
+            lv_label_set_text(gpLastInput, t == 0 ? "最后输入：LT" : "最后输入：RT");
+        gpPrevTrigger[t] = on;
+    }
+
+    // Live D-pad readout, including the raw-hat fallback.
+    if (gpDpadLbl)
+    {
+        std::string dirs;
+        if (connected)
+        {
+            if (surface->padButton(slot, display::PadDpadUp))    dirs += "↑ ";
+            if (surface->padButton(slot, display::PadDpadDown))  dirs += "↓ ";
+            if (surface->padButton(slot, display::PadDpadLeft))  dirs += "← ";
+            if (surface->padButton(slot, display::PadDpadRight)) dirs += "→ ";
+        }
+        lv_label_set_text(gpDpadLbl,
+                          dirs.empty() ? "十字键 —" : ("十字键 " + dirs).c_str());
     }
 }
 
@@ -3435,15 +3648,19 @@ void LvglLauncherApp::Impl::navCb(lv_event_t* event)
 void LvglLauncherApp::Impl::searchCb(lv_event_t* event)
 {
     Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
-    if (app)
-        app->focusSearch();
+    if (!app)
+        return;
+    app->closeRight();
+    app->focusSearch();
 }
 
 void LvglLauncherApp::Impl::fullscreenCb(lv_event_t* event)
 {
     Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
-    if (app)
-        app->toggleFullscreen();
+    if (!app)
+        return;
+    app->closeRight();
+    app->toggleFullscreen();
 }
 
 void LvglLauncherApp::Impl::bannerPlayCb(lv_event_t* event)
@@ -3573,6 +3790,13 @@ void LvglLauncherApp::Impl::rightPillCb(lv_event_t* event)
             return;
         }
     }
+}
+
+void LvglLauncherApp::Impl::rightCatcherCb(lv_event_t* event)
+{
+    Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
+    if (app)
+        app->closeRight();
 }
 
 void LvglLauncherApp::Impl::rightCloseCb(lv_event_t* event)
@@ -3714,6 +3938,7 @@ void LvglLauncherApp::Impl::settingsSegCb(lv_event_t* event)
         {
             app->gpPlayer = i;
             std::memset(app->gpPrevBtn, 0, sizeof(app->gpPrevBtn));
+            std::memset(app->gpPrevTrigger, 0, sizeof(app->gpPrevTrigger));
             app->refreshSettings();
             return;
         }
@@ -3733,10 +3958,48 @@ void LvglLauncherApp::Impl::settingsRescanCb(lv_event_t* event)
 void LvglLauncherApp::Impl::settingsBrowseCb(lv_event_t* event)
 {
     Impl* app = static_cast<Impl*>(lv_event_get_user_data(event));
-    if (!app)
+    if (!app || !app->surface)
         return;
-    app->status = "选择文件夹：请用 --library 指定，或手动编辑 launcher.conf";
-    app->refreshStatus();
+
+    // Reopen where the dialog was left last time (a cancelled dialog still
+    // updates this), falling back to the current library.
+    const std::string startDir = app->config.lastPickerDir.empty()
+                                     ? app->library
+                                     : app->config.lastPickerDir;
+
+    std::string path;
+    std::string error;
+    std::string lastDir;
+    const bool picked = app->surface->pickFolder(startDir, path, error, &lastDir);
+
+    std::fprintf(stderr, "Launcher: folder picker %s start='%s' path='%s' dir='%s'\n",
+                 picked ? "ok" : "cancelled", startDir.c_str(), path.c_str(),
+                 lastDir.c_str());
+
+    if (!lastDir.empty() && lastDir != app->config.lastPickerDir)
+        app->config.lastPickerDir = lastDir;
+
+    if (!picked)
+    {
+        if (!lastDir.empty())
+            app->saveConfig();
+        // Cancelling is not an error; only report an unavailable picker.
+        if (!error.empty())
+        {
+            app->status = "无法打开文件夹选择：" + error;
+            app->refreshStatus();
+        }
+        return;
+    }
+
+    app->library            = path;
+    app->config.libraryPath = path;
+    if (!app->saveConfig())
+        std::fprintf(stderr, "Launcher: could not save %s\n", app->configPath.c_str());
+    app->rescan();
+    app->status = app->error.empty() ? "游戏库已切换到 " + path
+                                     : app->error;
+    app->refreshAll();
 }
 
 void LvglLauncherApp::Impl::deadzoneSliderCb(lv_event_t* event)

@@ -72,6 +72,10 @@ class Display {
     virtual void setFullscreen(bool) = 0;
     virtual bool fullscreen() const = 0;
 
+    // 原生目录选择框；取消返回 false 且 error 为空。
+    virtual bool pickFolder(const std::string& initialDir,
+                            std::string& path, std::string& error) = 0;
+
     virtual std::uint32_t ticks() const = 0;  // 毫秒
     virtual void delay(std::uint32_t) = 0;
 
@@ -128,6 +132,10 @@ class Display {
   事件坐标、window/drawable/画布尺寸和最终画布坐标，用来排查平台缩放导致
   的偏移。
 - `ticks/delay` 使用 `std::chrono::steady_clock`，不依赖 `SDL_GetTicks`。
+- 目录选择由 `Display::pickFolder()` 提供，具体实现放在
+  `display/folder_picker_*`：macOS 用 NSOpenPanel（ObjC++），Windows 用
+  IFileOpenDialog，Linux 依次调用 `zenity` / `kdialog`。UI 只拿到最终路径，
+  headless 后端返回“无选择器”。
 
 ### Headless 后端
 
@@ -157,7 +165,10 @@ class Display {
   每帧把队列排空。这样按下与抬起即使落在同一帧内也会被 LVGL 依次看到，
   触摸屏上短促的 tap 不会丢失，也不会让 LVGL 继续使用上一帧的旧坐标。
 - 详情面板是一个默认隐藏的抽屉：卡片/最近游玩/圆点被单击时打开，`Esc`、
-  右上角 `×` 或切换页签时关闭；键盘选择只更新内容，不主动弹出。
+  右上角 `×`、点击抽屉以外的任意位置或切换页签时关闭；键盘选择只更新
+  内容，不主动弹出。外部点击由三层透明 `clickable` 覆盖层实现（顶部栏、
+  内容区、底部状态栏），它们分别创建在各自区域控件之前，因此页签、搜索框、
+  全屏按钮等控件仍在最上层并保持原有交互。
 - 字体：FreeType 按候选路径（`ALLNES_FONT` → 各平台系统 CJK 字体）直接创建
   11–52px 的位图模式字体（字号乘以 `renderScale`）；封面用 LVGL 的 PNG/JPEG
   解码器从 `A:/path` 加载，按路径缓存 `lv_image_dsc_t`。
@@ -202,6 +213,14 @@ virtual std::uint8_t buttonState(int player) const = 0;  // player: 0 或 1
 
 `Controller` 在 strobe 下降沿采样该状态，随后逐位读出。SDK 前端每帧调用
 `SDL_GetKeyboardState` 和 `SDL_GameControllerGetButton`，把结果写入缓存。
+
+手柄层（`gamepad/`）在初始化时加载内置的 `gamecontrollerdb.txt`，再为未
+识别的设备注册通用 Xbox 映射。打开设备前会检查映射里的十字键覆盖情况，
+缺方向时用 hat（`h0.1/.2/.4/.8`）或 Xbox 360 的 `b11..b14` 补全；
+`Gamepads::button()` 对四个 D-pad 按键额外合并原始 hat，保证映射不完整时
+仍能读到全部方向。`host/sdl_input.cpp` 把抽象按键转为 NES 位掩码
+（A→A、B→X/B、Select→Back、Start→Start），并在「摇杆模拟十字键」开启时
+把左摇杆经死区转换成方向；死区与开关来自启动器持久化的 `launcher.conf`。
 
 ## 一帧的数据流
 

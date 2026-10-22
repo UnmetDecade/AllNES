@@ -90,8 +90,11 @@ struct Event
 
     int x = 0;             // mouse position in canvas pixels
     int y = 0;
-    int wheelX = 0;        // SDL sign: up is positive
-    int wheelY = 0;
+    // Precise wheel deltas (SDL sign: up is positive). Trackpads report
+    // fractional amounts; rounding them per event made the UI scroll one row
+    // for every event of a single flick.
+    float wheelX = 0.0f;
+    float wheelY = 0.0f;
 
     int windowWidth  = 0;  // Resize
     int windowHeight = 0;
@@ -123,6 +126,15 @@ public:
     virtual void hide() = 0;
     virtual void setFullscreen(bool enabled) = 0;
     virtual bool fullscreen() const = 0;
+
+    // Native directory chooser owned by the window layer. `initialDir` seeds
+    // the dialog (may be empty). Returns true and fills `path` when the user
+    // picks a folder; returns false on cancel (`error` stays empty) or when no
+    // picker is available (`error` is set). `lastDir`, when non-null, receives
+    // the directory the dialog ended in so callers can remember it next time.
+    virtual bool pickFolder(const std::string& initialDir,
+                            std::string& path, std::string& error,
+                            std::string* lastDir = nullptr) = 0;
 
     virtual std::uint32_t ticks() const = 0;      // milliseconds
     virtual void          delay(std::uint32_t ms) = 0;

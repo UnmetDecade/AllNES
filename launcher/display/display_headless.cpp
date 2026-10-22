@@ -118,6 +118,15 @@ bool HeadlessDisplay::fullscreen() const
     return m_fullscreen;
 }
 
+bool HeadlessDisplay::pickFolder(const std::string& initialDir, std::string&,
+                                 std::string& error, std::string* lastDir)
+{
+    if (lastDir)
+        *lastDir = initialDir;
+    error = "headless display has no folder picker";
+    return false;
+}
+
 std::uint32_t HeadlessDisplay::ticks() const
 {
     const auto elapsed = std::chrono::steady_clock::now() - m_start;

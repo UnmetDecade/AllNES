@@ -48,6 +48,9 @@ public:
     void hide() override;
     void setFullscreen(bool enabled) override;
     bool fullscreen() const override;
+    bool pickFolder(const std::string& initialDir,
+                    std::string& path, std::string& error,
+                    std::string* lastDir = nullptr) override;
 
     std::uint32_t ticks() const override;
     void          delay(std::uint32_t ms) override;

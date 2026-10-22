@@ -46,6 +46,12 @@ bool SdlVideo::init(int texWidth, int texHeight, int windowWidth, int windowHeig
         return false;
     }
 
+    // SDL's text-input state is process-wide. The launcher turns it on for its
+    // search box; without this the new game window inherits it and macOS pops
+    // up the IME while the player types on the keyboard. Games never need
+    // text input.
+    SDL_StopTextInput();
+
     m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_ACCELERATED);
     if (!m_renderer)
     {

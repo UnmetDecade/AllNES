@@ -57,6 +57,9 @@ void PPU::setInterruptCallback(std::function<void(void)> cb)
 
 void PPU::step()
 {
+    const Phase phaseBefore = m_phase;
+    const int   lineBefore  = m_line;
+
     switch (m_phase)
     {
     case PreRender:
@@ -73,7 +76,12 @@ void PPU::step()
         break;
     }
 
-    ++m_dot;
+    // The tick functions reset m_dot to zero when a scanline ends. Dot zero of
+    // the new line still needs its own step, so only advance m_dot when the
+    // line did not change -- otherwise every scanline would lose one dot
+    // (340 instead of the NTSC 341), making the emulated frame ~0.3% short.
+    if (m_phase == phaseBefore && m_line == lineBefore)
+        ++m_dot;
 }
 
 void PPU::tickPreRender()

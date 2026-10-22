@@ -1,5 +1,8 @@
 #include "sdl_input.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace host
 {
 namespace
@@ -20,8 +23,9 @@ const SDL_GameControllerButton kGamepadMap[GamepadButtonCount] = {
 };
 } // namespace
 
-SdlInput::SdlInput(const Keybindings& keys)
+SdlInput::SdlInput(const Keybindings& keys, PadOptions options)
   : m_keys(keys)
+  , m_options(options)
 {
 }
 
@@ -39,6 +43,38 @@ void SdlInput::applyPad(int player, int slot)
         if (m_pads.button(slot, kGamepadMap[button]))
             m_state[player] |= static_cast<std::uint8_t>(1u << button);
     }
+
+    // Xbox B is the natural "run" button for players used to the 360 layout.
+    // SDL X stays bound as well so existing muscle memory keeps working.
+    if (m_pads.button(slot, SDL_CONTROLLER_BUTTON_B))
+        m_state[player] |= allnes::ButtonB;
+}
+
+void SdlInput::applyStick(int player, int slot)
+{
+    if (!m_options.stickToDpad)
+        return;
+
+    // Do not let a zero dead zone turn stick noise into constant input.
+    const float deadzone = std::clamp(m_options.deadzone, 0.05f, 0.5f);
+
+    const float x = m_pads.axis(slot, SDL_CONTROLLER_AXIS_LEFTX) / 32767.0f;
+    const float y = m_pads.axis(slot, SDL_CONTROLLER_AXIS_LEFTY) / 32767.0f;
+
+    // Radial gate first, then per-axis thresholds so diagonals need both axes.
+    if (std::hypot(x, y) <= deadzone)
+        return;
+
+    std::uint8_t state = m_state[player];
+    if (x <= -deadzone)
+        state |= allnes::ButtonLeft;
+    if (x >= deadzone)
+        state |= allnes::ButtonRight;
+    if (y <= -deadzone) // SDL's Y axis points down
+        state |= allnes::ButtonUp;
+    if (y >= deadzone)
+        state |= allnes::ButtonDown;
+    m_state[player] = state;
 }
 
 void SdlInput::poll()
@@ -59,7 +95,10 @@ void SdlInput::poll()
 
     // Slot 0 -> player 1, slot 1 -> player 2.
     for (int slot = 0; slot < allnes::gamepad::Gamepads::kMaxControllers; ++slot)
+    {
         applyPad(slot, slot);
+        applyStick(slot, slot);
+    }
 }
 
 std::uint8_t SdlInput::buttonState(int player) const

@@ -26,9 +26,9 @@
 - iNES 格式，mapper：NROM(0)、MMC1/SxROM(1)、UxROM(2)、CNROM(3)、
   MMC3(4)、AxROM(7)、ColorDreams(11)、GxROM(66)、MMC3 变种(245，
   勇者斗恶龙等中文改版卡带)
-- 键盘双人操作，支持最多两个手柄（热插拔，1P/2P 各一个）；第三方手柄
-  （GameSir、8BitDo X 输入模式等）不在 SDL 内置映射库里时，自动套用通用
-  Xbox 映射
+- 键盘双人操作，支持最多两个手柄（热插拔，1P/2P 各一个）；内置 SDL 社区
+  映射库（2200+ 条目），第三方手柄（GameSir、8BitDo X 输入模式等）不在
+  库中时自动套用通用 Xbox 映射，并补全缺失的十字键方向
 - 音频：APU 原生采样率约 894 kHz，由前端重采样到设备采样率
 - 保持宽高比的缩放：默认按窗口/屏幕的关键边铺满（全屏时高度铺满，左右留
   黑边），可选用 `--integer-scale` 强制整数倍；全屏、静音、帧率控制
@@ -96,7 +96,12 @@ CMake 会优先使用 SDL2 的 CMake package；当 package 中的绝对路径失
 `--display` 选择启动器的显示后端：`auto`（默认，等同 `sdl`）、`sdl` 或
 `headless`。headless 后端不建立窗口，用于 CI 和无头截图，画布固定为
 1920×1080。
-启动器会直接扫描库目录（不递归）里的 `.nes` 文件。没有 `--library` 时使用
+启动器会直接扫描库目录（不递归）里的 `.nes` 文件。也可以在「设置 → 游戏库」
+点「选择文件夹…」通过系统目录对话框切换游戏库：macOS 使用 NSOpenPanel，
+Windows 使用 IFileOpenDialog，Linux 调用 `zenity` 或 `kdialog`（需安装其一）。
+对话框会从上次所在的目录打开（取消时浏览到的位置也会记住），选中的目录
+立即保存并在下次启动时恢复。
+没有 `--library` 时使用
 上次保存的目录；第一次运行则使用当前目录下的 `roms/`（若存在），否则使用
 当前目录。库路径、分辨率和最近启动的游戏保存在
 `~/Library/Application Support/AllNES/AllNES/launcher.conf`（macOS）、
@@ -108,8 +113,10 @@ CMake 会优先使用 SDL2 的 CMake package；当 package 中的绝对路径失
 顶部是首页 / 游戏库 / 设置三个页签和搜索框；首页有选中游戏的横幅、
 “最近游玩”和一行游戏库预览；游戏库页是 9 列封面网格。右侧详情面板默认
 隐藏，单击任意游戏卡片（或“最近游玩”卡片）时作为抽屉弹出，显示封面、
-mapper、文件大小、运行状态、分辨率和启动按钮；按 `Esc` 或点右上角 `×`
-关闭，切换页签时也会自动关闭。键盘方向键只移动选择，不会弹出面板。
+mapper、文件大小、运行状态、分辨率和启动按钮；按 `Esc`、点右上角 `×`、
+点击抽屉以外的任意位置（顶部栏、页面、底部状态栏），或切换页签都会关闭。
+键盘方向键只移动选择，
+不会弹出面板。
 底部状态栏显示数量、占用空间和当前分辨率。
 
 LVGL UI 把 `third_party/lvgl/` 当作只读的第三方依赖：CMake 以
@@ -178,6 +185,24 @@ roms/
 | Back（Xbox）/ Share（PS） | 启动器全屏切换               |
 | Start / Options           | 启动选中的游戏               |
 | LB / L1、RB / R1          | 切换分辨率档位               |
+
+游戏内手柄操作：
+
+| 手柄按键                         | NES 按键              |
+| -------------------------------- | --------------------- |
+| 十字键 / 左摇杆                  | 方向键                |
+| A                                | A（跳跃）             |
+| X 或 B                           | B（加速 / 攻击）      |
+| Back / Share                     | Select                |
+| Start / Options                  | Start                 |
+
+左摇杆模拟十字键与死区来自「设置 → 输入 · 手柄」，启动游戏时读取并生效。
+「手柄测试」页会实时显示按键、十字键四个方向、摇杆、扳机与震动状态。
+
+手柄映射默认使用仓库内置的 `gamecontrollerdb.txt`（构建时复制到可执行文件
+旁）。可用 `ALLNES_GAMECONTROLLERDB=/path/to/gamecontrollerdb.txt` 指定
+其他映射库；设置 `ALLNES_GAMEPAD_DEBUG=1` 可在 stderr 查看设备、GUID、
+按键数量与最终映射串，便于排查个别手柄的兼容问题。
 
 分辨率档位（游戏窗口尺寸）：3x 768×720（默认）、4x 1024×960、
 5x 1280×1200、1920×1080、2560×1440、全屏。游戏画面仍在窗口内做整数倍
@@ -258,8 +283,11 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
 | `ALLNES_LAUNCHER_SHOT=FILE`     | 把启动器画面保存为 PNG                                          |
 | `ALLNES_LAUNCHER_SHOT_FRAME=N`  | 在第 N 帧截图（默认第 0 帧）                                    |
 | `ALLNES_LAUNCHER_TAB=0/1/2`     | 启动时直接打开首页 / 游戏库 / 设置                              |
+| `ALLNES_LAUNCHER_SETTINGS=N`    | 设置页直接定位到第 N 个板块（2 = 输入 · 手柄）                  |
 | `ALLNES_LAUNCHER_DETAILS=1`     | 启动时直接打开右侧详情抽屉（截图用）                            |
 | `ALLNES_LAUNCHER_INPUT_DEBUG=1` | 把鼠标/触摸的事件坐标、drawable 尺寸与最终画布坐标打印到 stderr |
+| `ALLNES_GAMEPAD_DEBUG=1`        | 打印手柄设备、GUID、按键数量与最终映射串                        |
+| `ALLNES_GAMECONTROLLERDB=FILE`  | 使用指定的 SDL 手柄映射库（覆盖内置数据库）                     |
 
 ```sh
 ALLNES_LAUNCHER_TAB=1 ALLNES_LAUNCHER_SHOT=/tmp/launcher.png \
@@ -274,7 +302,7 @@ AllNES/
 │   ├── include/port/     # IVideoSink / IAudioSink / IInputSource
 │   ├── include/          # CPU、PPU、APU、main bus、mapper……
 │   └── src/
-├── gamepad/              # SDL 手柄封装：枚举、热插拔、第三方手柄通用映射
+├── gamepad/              # SDL 手柄封装：映射库、枚举、热插拔、通用映射
 ├── launcher/             # 独立启动器层（不依赖 core）
 │   ├── model/            # ROM 扫描、iNES 头探测、配置持久化
 │   ├── display/          # 显示抽象层：Display 接口 + SDL2 / headless 后端

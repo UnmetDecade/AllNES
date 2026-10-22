@@ -25,11 +25,19 @@ public:
     bool muted() const { return m_muted; }
 
 private:
+    Uint32 bytesPerDeviceFrame() const
+    {
+        return static_cast<Uint32>(SDL_AUDIO_BITSIZE(m_spec.format) / 8) * m_spec.channels;
+    }
+
     SDL_AudioDeviceID    m_device   = 0;
     SDL_AudioStream*     m_stream   = nullptr;
     SDL_AudioSpec        m_spec {};
-    bool                 m_muted       = false;
-    bool                 m_initialized = false;
+    Uint32               m_prebufferBytes = 0;
+    Uint32               m_lowWaterBytes  = 0;
+    bool                 m_started       = false;
+    bool                 m_muted         = false;
+    bool                 m_initialized   = false;
     std::vector<std::uint8_t> m_scratch;
 };
 } // namespace host

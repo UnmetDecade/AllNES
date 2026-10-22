@@ -12,6 +12,18 @@ add_library(allnes_display STATIC
 target_include_directories(allnes_display PUBLIC "${CMAKE_SOURCE_DIR}")
 target_link_libraries(allnes_display PUBLIC allnes_gamepad ${ALLNES_SDL2_LINK})
 
+# Native "choose folder" dialog. The UI calls Display::pickFolder(), so the
+# platform code stays inside the windowing layer.
+if(APPLE)
+    target_sources(allnes_display PRIVATE display/folder_picker_mac.mm)
+    target_link_libraries(allnes_display PUBLIC "-framework Cocoa")
+elseif(WIN32)
+    target_sources(allnes_display PRIVATE display/folder_picker_win.cpp)
+    target_link_libraries(allnes_display PUBLIC ole32 shell32 uuid)
+else()
+    target_sources(allnes_display PRIVATE display/folder_picker_linux.cpp)
+endif()
+
 set(ALLNES_LAUNCHER_SOURCES
     model/library.cpp
     model/settings.cpp

@@ -1,5 +1,7 @@
 #include "launcher/display/display_sdl.h"
 
+#include "launcher/display/folder_picker.h"
+
 #include <SDL.h>
 
 #include <algorithm>
@@ -661,10 +663,20 @@ bool SdlDisplay::translate(const SDL_Event& event, Event& out) const
     }
 
     case SDL_MOUSEWHEEL:
-        out        = Event();
-        out.type   = EventType::MouseWheel;
-        out.wheelX = event.wheel.x;
-        out.wheelY = event.wheel.y;
+        out      = Event();
+        out.type = EventType::MouseWheel;
+        // preciseX/preciseY keep the fractional trackpad deltas; x/y are
+        // already rounded per event and would turn a single flick into
+        // dozens of full-speed steps.
+#if SDL_VERSION_ATLEAST(2, 0, 18)
+        out.wheelX = event.wheel.preciseX != 0.0f ? event.wheel.preciseX
+                                                  : static_cast<float>(event.wheel.x);
+        out.wheelY = event.wheel.preciseY != 0.0f ? event.wheel.preciseY
+                                                  : static_cast<float>(event.wheel.y);
+#else
+        out.wheelX = static_cast<float>(event.wheel.x);
+        out.wheelY = static_cast<float>(event.wheel.y);
+#endif
         return true;
 
     case SDL_WINDOWEVENT:
@@ -722,6 +734,9 @@ void SdlDisplay::show()
 
 void SdlDisplay::hide()
 {
+    // Do not keep the IME attached to a hidden window: the emulator opens its
+    // own window next and would inherit the active text-input state.
+    SDL_StopTextInput();
     if (m_window)
         SDL_HideWindow(m_window);
     resetPadState();
@@ -738,6 +753,13 @@ void SdlDisplay::setFullscreen(bool enabled)
 bool SdlDisplay::fullscreen() const
 {
     return m_fullscreen;
+}
+
+bool SdlDisplay::pickFolder(const std::string& initialDir,
+                            std::string& path, std::string& error,
+                            std::string* lastDir)
+{
+    return pickFolderNative(initialDir, path, error, lastDir);
 }
 
 std::uint32_t SdlDisplay::ticks() const

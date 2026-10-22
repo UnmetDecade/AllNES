@@ -26,3 +26,13 @@ add_test(NAME keybindings
 
 install(TARGETS allnes RUNTIME DESTINATION bin)
 install(FILES "${CMAKE_SOURCE_DIR}/keybindings.conf" DESTINATION bin)
+
+# Bundled SDL controller mappings; Gamepads loads it from the executable
+# directory (or share/allnes on Linux).
+set(ALLNES_CONTROLLER_DB "${CMAKE_SOURCE_DIR}/gamepad/data/gamecontrollerdb.txt")
+add_custom_command(TARGET allnes POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ALLNES_CONTROLLER_DB}" "$<TARGET_FILE_DIR:allnes>/gamecontrollerdb.txt")
+install(FILES "${ALLNES_CONTROLLER_DB}" DESTINATION bin)
+install(FILES "${CMAKE_SOURCE_DIR}/gamepad/data/LICENSE.SDL_GameControllerDB"
+        DESTINATION share/doc/allnes)
