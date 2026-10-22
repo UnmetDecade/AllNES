@@ -178,4 +178,9 @@ bool HeadlessDisplay::padRumble(int)
 {
     return false;
 }
+
+void HeadlessDisplay::setPadNavigationEnabled(bool)
+{
+    // No gamepad input in the headless backend; navigation is already inert.
+}
 } // namespace launcher::display

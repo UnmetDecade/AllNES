@@ -65,6 +65,8 @@ public:
     std::string padName(int slot) const override;
     bool        padRumble(int slot) override;
 
+    void setPadNavigationEnabled(bool enabled) override;
+
 private:
     bool translate(const SDL_Event& event, Event& out) const;
     void windowToCanvas(float wx, float wy, int& cx, int& cy) const;
@@ -104,6 +106,7 @@ private:
     // First pad drives launcher navigation. Button press edges become one-shot
     // KeyDown events; held directions auto-repeat so a held D-pad/stick scrolls.
     allnes::gamepad::Gamepads m_pads;
+    bool          m_padNavEnabled = true; // false while the gamepad-test panel shows
     std::uint8_t  m_padBtnPrev[SDL_CONTROLLER_BUTTON_MAX] = {};
     bool          m_dirPrev[4] = {};
     std::uint32_t m_dirDownAt[4] = {};

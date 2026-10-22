@@ -54,6 +54,8 @@ public:
     std::string padName(int slot) const override;
     bool        padRumble(int slot) override;
 
+    void setPadNavigationEnabled(bool enabled) override;
+
 private:
     std::vector<std::uint32_t> m_pixels;
     int                        m_width  = 0;

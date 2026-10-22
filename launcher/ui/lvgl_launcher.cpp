@@ -744,6 +744,7 @@ struct LvglLauncherApp::Impl
     void setLibraryFilter(int filter);
     void setSettingsSection(int section);
     void pollGamepad();
+    void syncPadNavigation();
 
     int  selectedRomIndex() const;
     const RomEntry* selectedRom() const;
@@ -976,6 +977,8 @@ bool LvglLauncherApp::Impl::init(const std::string& libraryOverride,
     }
     if (const char* sectionFromEnv = std::getenv("ALLNES_LAUNCHER_SETTINGS"))
         settingsSection = std::clamp(std::atoi(sectionFromEnv), 0, 5);
+
+    syncPadNavigation();
 
     if (!config.recent.empty())
     {
@@ -1369,6 +1372,7 @@ void LvglLauncherApp::Impl::setTab(int newTab)
     rebuildVisible();
     ensureSelectionVisible();
     refreshAll();
+    syncPadNavigation();
 }
 
 void LvglLauncherApp::Impl::focusSearch()
@@ -1426,6 +1430,7 @@ void LvglLauncherApp::Impl::syncQueryFromTextarea()
     rebuildVisible();
     error.clear();
     refreshAll();
+    syncPadNavigation();
 }
 
 void LvglLauncherApp::Impl::setQuery(const std::string& text)
@@ -3453,6 +3458,16 @@ void LvglLauncherApp::Impl::setSettingsSection(int section)
     if (settingsContent)
         lv_obj_scroll_to_y(settingsContent, 0, LV_ANIM_OFF);
     refreshSettings();
+    syncPadNavigation();
+}
+
+void LvglLauncherApp::Impl::syncPadNavigation()
+{
+    // The gamepad-test panel (settings tab, "输入 · 手柄" section) reads the
+    // pad directly to drive its visualizer; while it is showing, stop the pad
+    // from also generating launcher navigation keys.
+    if (surface)
+        surface->setPadNavigationEnabled(!(tab == 2 && settingsSection == 2));
 }
 
 void LvglLauncherApp::Impl::pollGamepad()

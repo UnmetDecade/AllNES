@@ -155,6 +155,12 @@ public:
     virtual int         padAxis(int slot, int axisIndex) const = 0;
     virtual std::string padName(int slot) const = 0;
     virtual bool        padRumble(int slot) = 0;
+
+    // When false, gamepad input no longer drives launcher navigation; it is
+    // still readable through padButton()/padAxis(). The settings "gamepad test"
+    // panel turns this off so testing a pad does not also move the selection,
+    // leave the screen or launch games.
+    virtual void setPadNavigationEnabled(bool enabled) = 0;
 };
 
 // Portable gamepad button indices (padButton). Matches SDL's abstract

@@ -401,7 +401,7 @@ bool SdlDisplay::pollEvent(Event& out)
         m_padQueue.pop_front();
         return true;
     }
-    if (m_pads.count() > 0)
+    if (m_padNavEnabled && m_pads.count() > 0)
         controllerTick();
     if (!m_padQueue.empty())
     {
@@ -503,6 +503,13 @@ void SdlDisplay::resetPadState()
     std::memset(m_dirPrev, 0, sizeof(m_dirPrev));
     std::memset(m_dirDownAt, 0, sizeof(m_dirDownAt));
     std::memset(m_dirLastRepeat, 0, sizeof(m_dirLastRepeat));
+}
+
+void SdlDisplay::setPadNavigationEnabled(bool enabled)
+{
+    m_padNavEnabled = enabled;
+    if (!enabled)
+        resetPadState(); // drop pending pad events and held-edge state
 }
 
 bool SdlDisplay::translate(const SDL_Event& event, Event& out) const
